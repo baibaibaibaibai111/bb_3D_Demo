@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>3D 乐高编辑器</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #111;
+    }
+    #colorPicker {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      display: none;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+<input type="color" id="colorPicker" />
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+    "three/examples/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/controls/OrbitControls.js";
+import { EffectComposer } from "three/examples/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/postprocessing/RenderPass.js";
+import { OutlinePass } from "three/examples/postprocessing/OutlinePass.js";
+
+/* ================= 场景 ================= */
+
+const scene = new THREE.Scene();
+/* 关键：不要用太暗的背景 */
+scene.background = new THREE.Color(0xf0f0f0);
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(8, 8, 8);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+/* ================= 控制 ================= */
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+/* ================= 灯光（重点修复） ================= */
+
+/* 环境光调亮 */
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+dirLight.position.set(10, 15, 10);
+dirLight.castShadow = true;
+
+/* 阴影范围（非常关键） */
+dirLight.shadow.camera.left = -30;
+dirLight.shadow.camera.right = 30;
+dirLight.shadow.camera.top = 30;
+dirLight.shadow.camera.bottom = -30;
+dirLight.shadow.camera.near = 1;
+dirLight.shadow.camera.far = 50;
+dirLight.shadow.mapSize.set(2048, 2048);
+
+scene.add(dirLight);
+
+/* ================= 地面（桌子） ================= */
+
+const plane = new THREE.Mesh(
+  new THREE.PlaneGeometry(50, 50),
+  new THREE.MeshStandardMaterial({
+    color: 0xdddddd,
+    roughness: 0.8
+  })
+);
+plane.rotation.x = -Math.PI / 2;
+plane.receiveShadow = true;
+scene.add(plane);
+
+/* 网格辅助（防止迷失） */
+scene.add(new THREE.GridHelper(50, 50));
+
+/* ================= 后处理描边 ================= */
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+
+const outlinePass = new OutlinePass(
+  new THREE.Vector2(innerWidth, innerHeight),
+  scene,
+  camera
+);
+outlinePass.edgeStrength = 3;
+outlinePass.visibleEdgeColor.set("#4da3ff");
+composer.addPass(outlinePass);
+
+/* ================= 工具 ================= */
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+/* 注意：拖拽平面高度动态算 */
+let dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const offset = new THREE.Vector3();
+
+const blocks = [];
+let dragging = null;
+let selected = null;
+
+const picker = document.getElementById("colorPicker");
+const snap = v => Math.round(v);
+
+/* ================= 堆叠高度 ================= */
+
+function getStackHeight(x, z, self) {
+  let y = 0.5;
+  blocks.forEach(b => {
+    if (b === self) return;
+    if (snap(b.position.x) === x && snap(b.position.z) === z) {
+      y = Math.max(y, b.position.y + 1);
+    }
+  });
+  return y;
+}
+
+/* ================= 创建积木 ================= */
+
+function createBlock(x, z, color = new THREE.Color().setHSL(Math.random(), 0.7, 0.6)) {
+  const block = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.6 })
+  );
+  block.position.set(snap(x), 0.5, snap(z));
+  block.castShadow = true;
+  block.receiveShadow = true;
+  scene.add(block);
+  blocks.push(block);
+  return block;
+}
+
+/* ================= 交互 ================= */
+
+function updateMouse(e) {
+  mouse.x = (e.clientX / innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+}
+
+function setSelected(obj) {
+  selected = obj;
+  outlinePass.selectedObjects = obj ? [obj] : [];
+}
+
+/* 按下 */
+window.addEventListener("mousedown", e => {
+  updateMouse(e);
+  raycaster.setFromCamera(mouse, camera);
+
+  const hitBlock = raycaster.intersectObjects(blocks);
+  if (hitBlock.length) {
+    dragging = hitBlock[0].object;
+    setSelected(dragging);
+    controls.enabled = false;
+
+    /* 关键：拖拽平面高度 = 当前积木高度 */
+    dragPlane.constant = -dragging.position.y;
+
+    const p = new THREE.Vector3();
+    raycaster.ray.intersectPlane(dragPlane, p);
+    offset.copy(p).sub(dragging.position);
+    return;
+  }
+
+  const hitPlane = raycaster.intersectObject(plane);
+  if (hitPlane.length) {
+    setSelected(createBlock(hitPlane[0].point.x, hitPlane[0].point.z));
+  }
+});
+
+/* 拖动 */
+window.addEventListener("mousemove", e => {
+  if (!dragging) return;
+
+  updateMouse(e);
+  raycaster.setFromCamera(mouse, camera);
+
+  const p = new THREE.Vector3();
+  if (raycaster.ray.intersectPlane(dragPlane, p)) {
+    const x = snap(p.x - offset.x);
+    const z = snap(p.z - offset.z);
+    const y = getStackHeight(x, z, dragging);
+    dragging.position.set(x, y, z);
+  }
+});
+
+/* 松开 */
+window.addEventListener("mouseup", () => {
+  dragging = null;
+  controls.enabled = true;
+});
+
+/* 双击换色 */
+window.addEventListener("dblclick", e => {
+  updateMouse(e);
+  raycaster.setFromCamera(mouse, camera);
+
+  const hit = raycaster.intersectObjects(blocks);
+  if (!hit.length) return;
+
+  setSelected(hit[0].object);
+  picker.value = `#${selected.material.color.getHexString()}`;
+  picker.style.display = "block";
+
+  picker.oninput = () => {
+    selected.material.color.set(picker.value);
+  };
+});
+
+/* 删除 */
+window.addEventListener("keydown", e => {
+  if (!selected) return;
+  if (e.key === "Delete" || e.key === "Backspace") {
+    scene.remove(selected);
+    blocks.splice(blocks.indexOf(selected), 1);
+    setSelected(null);
+    picker.style.display = "none";
+  }
+});
+
+/* ================= 渲染 ================= */
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  composer.render();
+}
+animate();
+
+window.addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+});
+</script>
+
+</body>
+</html>
