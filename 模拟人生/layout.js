@@ -25,6 +25,16 @@ function createFloor(x, z) {
   floors.push(floor);
 }
 
+function hasFloorAt(x, z) {
+  for (let i = 0; i < floors.length; i++) {
+    const g = floors[i].userData && floors[i].userData.grid;
+    if (g && g.x === x && g.z === z) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function createWall(x, z, dir) {
   const height = 2.5;
   const thickness = 0.1;
@@ -68,10 +78,18 @@ function createFurniture(x, z, type, rotationY = 0) {
     }
   }
 
+  if (type === "ceilingLight" && !isClosedRoomCell(x, z)) {
+    alert("吊灯只能放在封闭房间里（需要有地板并由墙围成的房间）");
+    return;
+  }
+
   let mainColor = 0x8bc34a;
   if (type === "bed") mainColor = 0x03a9f4;
   else if (type === "sofa") mainColor = 0x9c27b0;
   else if (type === "table") mainColor = 0xffc107;
+  else if (type === "door") mainColor = 0x795548;
+  else if (type === "window") mainColor = 0x90a4ae;
+  else if (type === "ceilingLight") mainColor = 0xfff59d;
 
   const group = new THREE.Group();
   let highlightTarget = null;
@@ -153,6 +171,65 @@ function createFurniture(x, z, type, rotationY = 0) {
     });
 
     highlightTarget = top;
+  } else if (type === "door") {
+    const doorGeo = new THREE.BoxGeometry(0.1, 2.2, 1.0);
+    const doorMat = new THREE.MeshStandardMaterial({ color: mainColor });
+    const door = new THREE.Mesh(doorGeo, doorMat);
+    door.position.set(0, 1.1, 0);
+    door.castShadow = true;
+    door.receiveShadow = true;
+    group.add(door);
+    highlightTarget = door;
+  } else if (type === "window") {
+    const frameGeo = new THREE.BoxGeometry(0.1, 1.4, 1.2);
+    const glassGeo = new THREE.BoxGeometry(0.06, 1.0, 1.0);
+    const frameMat = new THREE.MeshStandardMaterial({ color: mainColor });
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: 0x90caf9,
+      transparent: true,
+      opacity: 0.5
+    });
+
+    const frame = new THREE.Mesh(frameGeo, frameMat);
+    frame.position.set(0, 1.3, 0);
+    frame.castShadow = true;
+    frame.receiveShadow = true;
+
+    const glass = new THREE.Mesh(glassGeo, glassMat);
+    glass.position.set(0.03, 1.3, 0);
+    glass.castShadow = false;
+    glass.receiveShadow = false;
+
+    group.add(frame);
+    group.add(glass);
+    highlightTarget = frame;
+  } else if (type === "ceilingLight") {
+    const rodGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.6, 8);
+    const lampGeo = new THREE.SphereGeometry(0.25, 16, 16);
+    const rodMat = new THREE.MeshStandardMaterial({ color: 0xb0bec5 });
+    const lampMat = new THREE.MeshStandardMaterial({
+      color: mainColor,
+      emissive: mainColor,
+      emissiveIntensity: 0.8
+    });
+
+    const rod = new THREE.Mesh(rodGeo, rodMat);
+    rod.position.set(0, 2.2, 0);
+    rod.castShadow = false;
+    rod.receiveShadow = false;
+
+    const lamp = new THREE.Mesh(lampGeo, lampMat);
+    lamp.position.set(0, 1.8, 0);
+    lamp.castShadow = true;
+    lamp.receiveShadow = true;
+
+    const light = new THREE.PointLight(0xfff8e1, 1, 6);
+    light.position.set(0, 1.8, 0);
+
+    group.add(rod);
+    group.add(lamp);
+    group.add(light);
+    highlightTarget = lamp;
   } else {
     const geo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
     const mat = new THREE.MeshStandardMaterial({ color: mainColor });
@@ -181,20 +258,82 @@ function createFurniture(x, z, type, rotationY = 0) {
 }
 
 function isCellWalkable(x, z) {
-  let hasFloor = false;
-  for (let i = 0; i < floors.length; i++) {
-    const g = floors[i].userData && floors[i].userData.grid;
-    if (g && g.x === x && g.z === z) {
-      hasFloor = true;
-      break;
-    }
-  }
-  if (!hasFloor) return false;
+  if (!hasFloorAt(x, z)) return false;
 
   for (let i = 0; i < furnitures.length; i++) {
     const g = furnitures[i].userData && furnitures[i].userData.grid;
     if (g && g.x === x && g.z === z) {
       return false;
+    }
+  }
+
+  return true;
+}
+
+function isClosedRoomCell(startX, startZ) {
+  if (!hasFloorAt(startX, startZ)) return false;
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+
+  floors.forEach(f => {
+    const g = f.userData && f.userData.grid;
+    if (!g) return;
+    if (g.x < minX) minX = g.x;
+    if (g.x > maxX) maxX = g.x;
+    if (g.z < minZ) minZ = g.z;
+    if (g.z > maxZ) maxZ = g.z;
+  });
+
+  if (!isFinite(minX)) return false;
+
+  const margin = 1;
+  const boundMinX = minX - margin;
+  const boundMaxX = maxX + margin;
+  const boundMinZ = minZ - margin;
+  const boundMaxZ = maxZ + margin;
+
+  const key = (x, z) => `${x},${z}`;
+  const dirs = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1]
+  ];
+
+  const queue = [{ x: startX, z: startZ }];
+  const visited = new Set([key(startX, startZ)]);
+
+  while (queue.length) {
+    const node = queue.shift();
+    const cx = node.x;
+    const cz = node.z;
+
+    for (let i = 0; i < dirs.length; i++) {
+      const dx = dirs[i][0];
+      const dz = dirs[i][1];
+      const nx = cx + dx;
+      const nz = cz + dz;
+
+      if (hasWallBetweenCells(cx, cz, nx, nz)) continue;
+
+      if (nx < boundMinX || nx > boundMaxX || nz < boundMinZ || nz > boundMaxZ) {
+        // 可以在沒有牆阻擋的情況下走到邊界外，說明不是封閉房間
+        return false;
+      }
+
+      if (!hasFloorAt(nx, nz)) {
+        // 可以在沒有牆阻擋的情況下走到沒有地板的格子，說明不是封閉房間
+        return false;
+      }
+
+      const k = key(nx, nz);
+      if (!visited.has(k)) {
+        visited.add(k);
+        queue.push({ x: nx, z: nz });
+      }
     }
   }
 
@@ -358,6 +497,100 @@ function scheduleDestroy(targetArray, obj) {
     object: obj,
     elapsed: 0,
     duration: 0.2
+  });
+}
+
+let wallVisibilityMode = "normal"; // normal | full | half
+
+function setWallVisibilityMode(mode) {
+  if (mode !== "normal" && mode !== "full" && mode !== "half") return;
+  wallVisibilityMode = mode;
+}
+
+function getWallVisibilityMode() {
+  return wallVisibilityMode;
+}
+
+function updateWallsForCameraView(camera) {
+  if (!camera) return;
+
+  if (wallVisibilityMode === "full") {
+    walls.forEach(w => {
+      w.visible = false;
+    });
+    return;
+  }
+
+  if (wallVisibilityMode === "normal") {
+    walls.forEach(w => {
+      w.visible = true;
+    });
+    return;
+  }
+
+  if (wallVisibilityMode !== "half") return;
+
+  if (!walls.length) return;
+
+  // 預設全部可見，後面再隱藏「相機前方」最近的一面牆
+  walls.forEach(w => {
+    w.visible = true;
+  });
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+
+  floors.forEach(f => {
+    const g = f.userData && f.userData.grid;
+    if (!g) return;
+    if (g.x < minX) minX = g.x;
+    if (g.x > maxX) maxX = g.x;
+    if (g.z < minZ) minZ = g.z;
+    if (g.z > maxZ) maxZ = g.z;
+  });
+
+  if (!isFinite(minX)) return;
+
+  const target = new THREE.Vector3(
+    (minX + maxX + 1) / 2,
+    1.25,
+    (minZ + maxZ + 1) / 2
+  );
+
+  const viewDir = target.clone().sub(camera.position);
+  const dist = viewDir.length();
+  if (!dist) return;
+  viewDir.divideScalar(dist);
+
+  let nearestLen = Infinity;
+  const candidates = [];
+
+  walls.forEach(w => {
+    const toWall = w.position.clone().sub(camera.position);
+    const projLen = toWall.dot(viewDir);
+    if (projLen <= 0) {
+      return;
+    }
+
+    const closestPoint = camera.position.clone().addScaledVector(viewDir, projLen);
+    const distToRay = w.position.distanceTo(closestPoint);
+    const threshold = 0.8; // 多寬的「視線」範圍內算是正對的牆
+
+    if (distToRay <= threshold) {
+      if (projLen < nearestLen - 0.05) {
+        nearestLen = projLen;
+        candidates.length = 0;
+        candidates.push(w);
+      } else if (Math.abs(projLen - nearestLen) <= 0.05) {
+        candidates.push(w);
+      }
+    }
+  });
+
+  candidates.forEach(w => {
+    w.visible = false;
   });
 }
 
@@ -545,6 +778,10 @@ export {
   scheduleDestroy,
   setObjectOpacity,
   removeObjectFromScene,
+   isClosedRoomCell,
+   setWallVisibilityMode,
+   getWallVisibilityMode,
+   updateWallsForCameraView,
   exportLayout,
   importLayout,
   saveLayoutSnapshot,

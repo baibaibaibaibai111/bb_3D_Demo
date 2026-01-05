@@ -26,6 +26,7 @@ import {
   scheduleDestroy,
   setObjectOpacity,
   removeObjectFromScene,
+  updateWallsForCameraView,
   exportLayout,
   importLayout,
   saveLayoutSnapshot,
@@ -63,6 +64,9 @@ initUI();
 /* ================= 交互路由（滑鼠/鍵盤） ================= */
 
 window.addEventListener("mousedown", e => {
+  if (e.target !== renderer.domElement) {
+    return;
+  }
   if (getGameMode() === "live") {
     handleLiveMouseDown(e);
     return;
@@ -121,6 +125,9 @@ function animate() {
       }
     }
   }
+
+  // 牆體透視模式：根據當前相機位置動態隱藏/顯示牆
+  updateWallsForCameraView(camera);
 
   controls.update();
   renderer.render(scene, camera);

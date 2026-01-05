@@ -54,6 +54,7 @@
   <div class="row">
     <button class="game-mode-button" data-game-mode="build">建造模式</button>
     <button class="game-mode-button" data-game-mode="live">生活模式</button>
+    <button class="game-mode-button" data-game-mode="view">視角模式</button>
   </div>
   <div class="row">
     <button class="mode-button" data-mode="floor">地板</button>
@@ -66,11 +67,20 @@
     <button id="loadLayout">加载布局</button>
     <button id="undoLayout">撤销</button>
   </div>
+  <div class="row">
+    墙体显示：
+    <button class="wall-visibility-button" data-wall-mode="normal">正常</button>
+    <button class="wall-visibility-button" data-wall-mode="half">半透视</button>
+    <button class="wall-visibility-button" data-wall-mode="full">全透视</button>
+  </div>
   <div class="row" id="furniturePanel">
     家具：
     <button class="furniture-type-button" data-type="bed">床</button>
     <button class="furniture-type-button" data-type="sofa">沙发</button>
     <button class="furniture-type-button" data-type="table">桌子</button>
+    <button class="furniture-type-button" data-type="door">门</button>
+    <button class="furniture-type-button" data-type="window">窗</button>
+    <button class="furniture-type-button" data-type="ceilingLight">吊灯</button>
     <button id="rotateFurnitureBtn">旋转选中家具</button>
   </div>
 </div>

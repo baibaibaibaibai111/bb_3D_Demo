@@ -1,5 +1,11 @@
 import { renderer } from "./core.js";
-import { exportLayout, importLayout, undoLastLayoutChange } from "./layout.js";
+import {
+  exportLayout,
+  importLayout,
+  undoLastLayoutChange,
+  setWallVisibilityMode,
+  getWallVisibilityMode
+} from "./layout.js";
 import {
   getBuildMode,
   setBuildMode as setBuildModeState,
@@ -33,11 +39,14 @@ const furnitureTypeButtons = Array.from(
 const rotateFurnitureBtn = document.getElementById("rotateFurnitureBtn");
 const gameModeButtons = Array.from(document.querySelectorAll(".game-mode-button"));
 const undoBtn = document.getElementById("undoLayout");
+const wallVisibilityButtons = Array.from(
+  document.querySelectorAll(".wall-visibility-button")
+);
 
 /* ================= UI 行為 ================= */
 
 function updateCursor() {
-  if (gameMode === "live") {
+  if (gameMode === "live" || gameMode === "view") {
     renderer.domElement.style.cursor = "default";
     return;
   }
@@ -49,18 +58,18 @@ function updateCursor() {
 }
 
 function setGameMode(mode) {
-  if (gameMode === mode) return;
   gameMode = mode;
 
   gameModeButtons.forEach(btn => {
     btn.classList.toggle("active", btn.dataset.gameMode === gameMode);
   });
 
+  // 每次切換模式時，都重置建造交互與生活模式狀態
+  resetBuildInteraction();
+  resetLiveState();
+
   if (gameMode === "live") {
-    resetBuildInteraction();
     ensureCharacter();
-  } else {
-    resetLiveState();
   }
   updateCursor();
 }
@@ -79,6 +88,14 @@ function setCurrentFurnitureType(type) {
   const current = getCurrentFurnitureType();
   furnitureTypeButtons.forEach(btn => {
     btn.classList.toggle("active", btn.dataset.type === current);
+  });
+}
+
+function setWallVisibility(mode) {
+  setWallVisibilityMode(mode);
+  const current = getWallVisibilityMode();
+  wallVisibilityButtons.forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.wallMode === current);
   });
 }
 
@@ -102,6 +119,9 @@ function rotateSelectedFurniture() {
 function initButtons() {
   setBuildMode(getBuildMode());
   setCurrentFurnitureType(getCurrentFurnitureType());
+  if (wallVisibilityButtons.length) {
+    setWallVisibility(getWallVisibilityMode());
+  }
 
   if (gameModeButtons.length) {
     setGameMode(gameMode);
@@ -122,6 +142,12 @@ function initButtons() {
   furnitureTypeButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       setCurrentFurnitureType(btn.dataset.type);
+    });
+  });
+
+  wallVisibilityButtons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      setWallVisibility(btn.dataset.wallMode);
     });
   });
 
@@ -152,6 +178,17 @@ function initButtons() {
 
 function initKeyboardShortcuts() {
   window.addEventListener("keydown", e => {
+    // 全局：切換視角模式快捷鍵 V
+    if (
+      (e.code === "KeyV" || e.key === "v" || e.key === "V") &&
+      !e.ctrlKey &&
+      !e.metaKey
+    ) {
+      e.preventDefault();
+      setGameMode("view");
+      return;
+    }
+
     if (gameMode === "build") {
       if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
         e.preventDefault();
