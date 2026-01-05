@@ -802,6 +802,7 @@ function removeObjectFromScene(obj) {
 }
 
 const layoutHistory = [];
+const layoutRedoHistory = [];
 let isRestoringLayout = false;
 
 function getCurrentLayout() {
@@ -884,11 +885,42 @@ function saveLayoutSnapshot() {
   if (layoutHistory.length > 50) {
     layoutHistory.shift();
   }
+  // 新的操作產生後，清空可以重做的歷史
+  layoutRedoHistory.length = 0;
 }
 
 function undoLastLayoutChange() {
   if (!layoutHistory.length) return;
+  // 先把當前狀態保存到重做棧
+  const current = getCurrentLayout();
+  layoutRedoHistory.push(JSON.stringify(current));
+  if (layoutRedoHistory.length > 50) {
+    layoutRedoHistory.shift();
+  }
+
   const json = layoutHistory.pop();
+  let data;
+  try {
+    data = JSON.parse(json);
+  } catch (e) {
+    return;
+  }
+  isRestoringLayout = true;
+  applyLayout(data);
+  isRestoringLayout = false;
+}
+
+function redoLastLayoutChange() {
+  if (!layoutRedoHistory.length) return;
+
+  // 先把當前狀態放回撤銷棧
+  const current = getCurrentLayout();
+  layoutHistory.push(JSON.stringify(current));
+  if (layoutHistory.length > 50) {
+    layoutHistory.shift();
+  }
+
+  const json = layoutRedoHistory.pop();
   let data;
   try {
     data = JSON.parse(json);
@@ -945,12 +977,13 @@ export {
   setObjectOpacity,
   removeObjectFromScene,
   updateDoorsAndWindows,
-   isClosedRoomCell,
-   setWallVisibilityMode,
-   getWallVisibilityMode,
-   updateWallsForCameraView,
+  isClosedRoomCell,
+  setWallVisibilityMode,
+  getWallVisibilityMode,
+  updateWallsForCameraView,
   exportLayout,
   importLayout,
   saveLayoutSnapshot,
-  undoLastLayoutChange
+  undoLastLayoutChange,
+  redoLastLayoutChange
 };

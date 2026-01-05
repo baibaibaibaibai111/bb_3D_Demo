@@ -3,6 +3,7 @@ import {
   exportLayout,
   importLayout,
   undoLastLayoutChange,
+  redoLastLayoutChange,
   setWallVisibilityMode,
   getWallVisibilityMode
 } from "./layout.js";
@@ -39,6 +40,7 @@ const furnitureTypeButtons = Array.from(
 const rotateFurnitureBtn = document.getElementById("rotateFurnitureBtn");
 const gameModeButtons = Array.from(document.querySelectorAll(".game-mode-button"));
 const undoBtn = document.getElementById("undoLayout");
+const redoBtn = document.getElementById("redoLayout");
 const wallVisibilityButtons = Array.from(
   document.querySelectorAll(".wall-visibility-button")
 );
@@ -169,6 +171,12 @@ function initButtons() {
     });
   }
 
+  if (redoBtn) {
+    redoBtn.addEventListener("click", () => {
+      redoLastLayoutChange();
+    });
+  }
+
   if (rotateFurnitureBtn) {
     rotateFurnitureBtn.addEventListener("click", () => {
       rotateSelectedFurniture();
@@ -193,6 +201,12 @@ function initKeyboardShortcuts() {
       if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
         e.preventDefault();
         undoLastLayoutChange();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "Y")) {
+        e.preventDefault();
+        redoLastLayoutChange();
         return;
       }
 
