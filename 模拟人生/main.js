@@ -27,6 +27,7 @@ import {
   setObjectOpacity,
   removeObjectFromScene,
   updateWallsForCameraView,
+  updateDoorsAndWindows,
   exportLayout,
   importLayout,
   saveLayoutSnapshot,
@@ -128,6 +129,9 @@ function animate() {
 
   // 牆體透視模式：根據當前相機位置動態隱藏/顯示牆
   updateWallsForCameraView(camera);
+
+  // 門窗開關動畫
+  updateDoorsAndWindows(delta);
 
   controls.update();
   renderer.render(scene, camera);

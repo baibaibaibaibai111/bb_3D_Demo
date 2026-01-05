@@ -35,6 +35,71 @@ function hasFloorAt(x, z) {
   return false;
 }
 
+function isDoorOpenOnWall(wx, wz, dir) {
+  for (let i = 0; i < furnitures.length; i++) {
+    const f = furnitures[i];
+    const d = f.userData;
+    if (!d || d.type !== "door" || !d.grid) continue;
+
+    const gx = d.grid.x;
+    const gz = d.grid.z;
+    const rot = typeof d.rotationY === "number" ? d.rotationY : f.rotation.y || 0;
+    const s = Math.sin(rot);
+    const c = Math.cos(rot);
+    const alongX = Math.abs(s) > Math.abs(c);
+    const doorDir = alongX ? "x" : "z";
+
+    if (doorDir === dir && gx === wx && gz === wz) {
+      return !!d.doorOpenTarget;
+    }
+  }
+  return false;
+}
+
+function hasBlockingWallBetweenCells(x1, z1, x2, z2) {
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  if (Math.abs(dx) + Math.abs(dz) !== 1) return false;
+
+  let wx;
+  let wz;
+  let dir;
+
+  if (dz === 1) {
+    wx = x1;
+    wz = z1 + 1;
+    dir = "x";
+  } else if (dz === -1) {
+    wx = x1;
+    wz = z1;
+    dir = "x";
+  } else if (dx === 1) {
+    wx = x1 + 1;
+    wz = z1;
+    dir = "z";
+  } else {
+    wx = x1;
+    wz = z1;
+    dir = "z";
+  }
+
+  // 檢查是否存在這段結構牆
+  let hasWall = false;
+  for (let i = 0; i < walls.length; i++) {
+    const d = walls[i].userData;
+    if (d && d.dir === dir && d.x === wx && d.z === wz) {
+      hasWall = true;
+      break;
+    }
+  }
+  if (!hasWall) return false;
+
+  // 有牆，但若該牆上有「已打開」的門，則視為可通行
+  if (isDoorOpenOnWall(wx, wz, dir)) return false;
+
+  return true;
+}
+
 function createWall(x, z, dir) {
   const height = 2.5;
   const thickness = 0.1;
@@ -172,17 +237,18 @@ function createFurniture(x, z, type, rotationY = 0) {
 
     highlightTarget = top;
   } else if (type === "door") {
-    const doorGeo = new THREE.BoxGeometry(0.1, 2.2, 1.0);
+    const doorGeo = new THREE.BoxGeometry(0.08, 2.2, 1.0);
     const doorMat = new THREE.MeshStandardMaterial({ color: mainColor });
     const door = new THREE.Mesh(doorGeo, doorMat);
-    door.position.set(0, 1.1, 0);
+    // 稍微往本地 X 正方向偏移，避免與牆完全共面產生 Z-fighting
+    door.position.set(0.05, 1.1, 0);
     door.castShadow = true;
     door.receiveShadow = true;
     group.add(door);
     highlightTarget = door;
   } else if (type === "window") {
-    const frameGeo = new THREE.BoxGeometry(0.1, 1.4, 1.2);
-    const glassGeo = new THREE.BoxGeometry(0.06, 1.0, 1.0);
+    const frameGeo = new THREE.BoxGeometry(0.08, 1.4, 1.2);
+    const glassGeo = new THREE.BoxGeometry(0.04, 1.0, 1.0);
     const frameMat = new THREE.MeshStandardMaterial({ color: mainColor });
     const glassMat = new THREE.MeshStandardMaterial({
       color: 0x90caf9,
@@ -191,12 +257,13 @@ function createFurniture(x, z, type, rotationY = 0) {
     });
 
     const frame = new THREE.Mesh(frameGeo, frameMat);
-    frame.position.set(0, 1.3, 0);
+    // 同樣沿本地 X 正方向偏移，避免與牆共面
+    frame.position.set(0.05, 1.3, 0);
     frame.castShadow = true;
     frame.receiveShadow = true;
 
     const glass = new THREE.Mesh(glassGeo, glassMat);
-    glass.position.set(0.03, 1.3, 0);
+    glass.position.set(0.09, 1.3, 0);
     glass.castShadow = false;
     glass.receiveShadow = false;
 
@@ -241,15 +308,36 @@ function createFurniture(x, z, type, rotationY = 0) {
     highlightTarget = box;
   }
 
-  group.position.set(x + 0.5, 0, z + 0.5);
-  group.rotation.y = rotationY;
+  if (type === "door" || type === "window") {
+    const rot = typeof rotationY === "number" ? rotationY : 0;
+    const s = Math.sin(rot);
+    const c = Math.cos(rot);
+    const alongX = Math.abs(s) > Math.abs(c);
+    if (alongX) {
+      // 與 X 方向牆對齊（水平牆，中心在 (x+0.5, z)）
+      group.position.set(x + 0.5, 0, z);
+    } else {
+      // 與 Z 方向牆對齊（垂直牆，中心在 (x, z+0.5)）
+      group.position.set(x, 0, z + 0.5);
+    }
+    group.rotation.y = rot;
+  } else {
+    group.position.set(x + 0.5, 0, z + 0.5);
+    group.rotation.y = rotationY;
+  }
   group.castShadow = true;
   group.receiveShadow = true;
   group.userData = {
     grid: { x, z },
     type,
     rotationY,
-    highlightTarget
+    highlightTarget,
+    // 門窗開關狀態（0 關，1 開），動畫在 live-mode.js 中插值
+    doorOpenTarget: type === "door" ? false : undefined,
+    doorOpenProgress: type === "door" ? 0 : undefined,
+    windowOpenTarget: type === "window" ? false : undefined,
+    windowOpenProgress: type === "window" ? 0 : undefined,
+    wall: undefined
   };
 
   scene.add(group);
@@ -261,8 +349,13 @@ function isCellWalkable(x, z) {
   if (!hasFloorAt(x, z)) return false;
 
   for (let i = 0; i < furnitures.length; i++) {
-    const g = furnitures[i].userData && furnitures[i].userData.grid;
+    const d = furnitures[i].userData;
+    const g = d && d.grid;
     if (g && g.x === x && g.z === z) {
+      const t = d && d.type;
+      if (t === "door" || t === "window" || t === "ceilingLight") {
+        continue;
+      }
       return false;
     }
   }
@@ -389,7 +482,7 @@ function canMoveCharacterTo(fromX, fromZ, toX, toZ) {
   }
 
   if (!isCellWalkable(nx, nz)) return false;
-  if (hasWallBetweenCells(cx, cz, nx, nz)) return false;
+  if (hasBlockingWallBetweenCells(cx, cz, nx, nz)) return false;
 
   return true;
 }
@@ -456,7 +549,7 @@ function findPath(startX, startZ, targetX, targetZ) {
       const nk = key(nx, nz);
       if (visited.has(nk)) continue;
       if (!isCellWalkable(nx, nz)) continue;
-      if (hasWallBetweenCells(node.x, node.z, nx, nz)) continue;
+      if (hasBlockingWallBetweenCells(node.x, node.z, nx, nz)) continue;
 
       visited.add(nk);
       cameFrom[nk] = key(node.x, node.z);
@@ -532,7 +625,7 @@ function updateWallsForCameraView(camera) {
 
   if (!walls.length) return;
 
-  // 預設全部可見，後面再隱藏「相機前方」最近的一面牆
+  // 預設全部可見，後面再隱藏「相機與房間中心之間」整層的牆
   walls.forEach(w => {
     w.visible = true;
   });
@@ -560,37 +653,80 @@ function updateWallsForCameraView(camera) {
   );
 
   const viewDir = target.clone().sub(camera.position);
-  const dist = viewDir.length();
-  if (!dist) return;
-  viewDir.divideScalar(dist);
+  if (!viewDir.length()) return;
 
-  let nearestLen = Infinity;
-  const candidates = [];
+  const absX = Math.abs(viewDir.x);
+  const absZ = Math.abs(viewDir.z);
 
-  walls.forEach(w => {
-    const toWall = w.position.clone().sub(camera.position);
-    const projLen = toWall.dot(viewDir);
-    if (projLen <= 0) {
-      return;
-    }
+  if (absX >= absZ) {
+    // 主要朝 X 方向看：隱藏相機與房間中心之間的牆（按 X 範圍）
+    const camX = camera.position.x;
+    const centerX = target.x;
+    const minCut = Math.min(camX, centerX);
+    const maxCut = Math.max(camX, centerX);
 
-    const closestPoint = camera.position.clone().addScaledVector(viewDir, projLen);
-    const distToRay = w.position.distanceTo(closestPoint);
-    const threshold = 0.8; // 多寬的「視線」範圍內算是正對的牆
+    walls.forEach(w => {
+      const x = w.position.x;
+      if (x > minCut && x < maxCut) {
+        w.visible = false;
+      }
+    });
+  } else {
+    // 主要朝 Z 方向看：隱藏相機與房間中心之間的牆（按 Z 範圍）
+    const camZ = camera.position.z;
+    const centerZ = target.z;
+    const minCut = Math.min(camZ, centerZ);
+    const maxCut = Math.max(camZ, centerZ);
 
-    if (distToRay <= threshold) {
-      if (projLen < nearestLen - 0.05) {
-        nearestLen = projLen;
-        candidates.length = 0;
-        candidates.push(w);
-      } else if (Math.abs(projLen - nearestLen) <= 0.05) {
-        candidates.push(w);
+    walls.forEach(w => {
+      const z = w.position.z;
+      if (z > minCut && z < maxCut) {
+        w.visible = false;
+      }
+    });
+  }
+}
+
+function updateDoorsAndWindows(delta) {
+  if (!furnitures.length) return;
+  const doorSpeed = 3; // 每秒開關進度
+  const windowSpeed = 2;
+
+  furnitures.forEach(f => {
+    const d = f.userData;
+    if (!d || !d.type) return;
+
+    if (d.type === "door") {
+      const target = d.doorOpenTarget ? 1 : 0;
+      let p = typeof d.doorOpenProgress === "number" ? d.doorOpenProgress : 0;
+      if (p !== target) {
+        const dir = target > p ? 1 : -1;
+        p += dir * doorSpeed * delta;
+        if (dir > 0 && p > target) p = target;
+        if (dir < 0 && p < target) p = target;
+        d.doorOpenProgress = p;
+
+        const closedYaw = typeof d.rotationY === "number" ? d.rotationY : f.rotation.y || 0;
+        const openYaw = closedYaw + Math.PI / 2;
+        const yaw = closedYaw + (openYaw - closedYaw) * p;
+        f.rotation.y = yaw;
+      }
+    } else if (d.type === "window") {
+      const target = d.windowOpenTarget ? 1 : 0;
+      let p = typeof d.windowOpenProgress === "number" ? d.windowOpenProgress : 0;
+      if (p !== target) {
+        const dir = target > p ? 1 : -1;
+        p += dir * windowSpeed * delta;
+        if (dir > 0 && p > target) p = target;
+        if (dir < 0 && p < target) p = target;
+        d.windowOpenProgress = p;
+
+        const closedYaw = typeof d.rotationY === "number" ? d.rotationY : f.rotation.y || 0;
+        const openYaw = closedYaw + Math.PI / 4;
+        const yaw = closedYaw + (openYaw - closedYaw) * p;
+        f.rotation.y = yaw;
       }
     }
-  });
-
-  candidates.forEach(w => {
-    w.visible = false;
   });
 }
 
@@ -778,6 +914,7 @@ export {
   scheduleDestroy,
   setObjectOpacity,
   removeObjectFromScene,
+  updateDoorsAndWindows,
    isClosedRoomCell,
    setWallVisibilityMode,
    getWallVisibilityMode,

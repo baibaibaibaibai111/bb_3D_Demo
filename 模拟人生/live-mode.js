@@ -542,19 +542,29 @@ function enterPillowFightPose(furniture, furnRot) {
 
 function showInteractionMenuForFurniture(furniture, clientX, clientY) {
   const type = furniture.userData && furniture.userData.type;
-  if (type !== "bed") {
-    // 目前只對床提供交互
-    return;
-  }
-
   const menu = getInteractionMenuElement();
   menu.innerHTML = "";
+  const options = [];
 
-  const options = [
-    { id: "sleep", label: "上床睡觉" },
-    { id: "sit_edge", label: "坐在床边" },
-    { id: "pillow_fight", label: "枕头大战（占位）" }
-  ];
+  if (type === "bed") {
+    options.push(
+      { id: "sleep", label: "上床睡觉" },
+      { id: "sit_edge", label: "坐在床边" },
+      { id: "pillow_fight", label: "枕头大战（占位）" }
+    );
+  } else if (type === "door") {
+    const d = furniture.userData || {};
+    const isOpen = !!d.doorOpenTarget;
+    options.push({ id: isOpen ? "door_close" : "door_open", label: isOpen ? "关门" : "开门" });
+  } else if (type === "window") {
+    const d = furniture.userData || {};
+    const isOpen = !!d.windowOpenTarget;
+    options.push({ id: isOpen ? "window_close" : "window_open", label: isOpen ? "关窗" : "开窗" });
+  }
+
+  if (!options.length) {
+    return;
+  }
 
   options.forEach(opt => {
     const btn = document.createElement("button");
@@ -570,7 +580,21 @@ function showInteractionMenuForFurniture(furniture, clientX, clientY) {
     btn.style.background = "#333";
     btn.addEventListener("click", () => {
       hideInteractionMenu();
-      startFurnitureInteraction(furniture, opt.id);
+      if (opt.id === "door_open") {
+        if (!furniture.userData) furniture.userData = {};
+        furniture.userData.doorOpenTarget = true;
+      } else if (opt.id === "door_close") {
+        if (!furniture.userData) furniture.userData = {};
+        furniture.userData.doorOpenTarget = false;
+      } else if (opt.id === "window_open") {
+        if (!furniture.userData) furniture.userData = {};
+        furniture.userData.windowOpenTarget = true;
+      } else if (opt.id === "window_close") {
+        if (!furniture.userData) furniture.userData = {};
+        furniture.userData.windowOpenTarget = false;
+      } else {
+        startFurnitureInteraction(furniture, opt.id);
+      }
     });
     menu.appendChild(btn);
   });

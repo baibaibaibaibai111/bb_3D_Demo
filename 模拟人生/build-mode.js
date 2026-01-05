@@ -222,6 +222,20 @@ function createFurniture(x, z, type = currentFurnitureType, rotationY = 0) {
   return obj;
 }
 
+function placeDoorOrWindowOnWall(wall, type) {
+  if (!wall || !wall.userData) return;
+  const data = wall.userData;
+  const wx = data.x;
+  const wz = data.z;
+  const dir = data.dir;
+  if (dir !== "x" && dir !== "z") return;
+
+  const rotY = dir === "x" ? Math.PI / 2 : 0;
+
+  // 使用牆所在的網格座標來創建門或窗，佈局函數會根據旋轉自動對齊到牆中心
+  createFurniture(wx, wz, type, rotY);
+}
+
 function handleBuildMouseDown(e) {
   updateMouseFromEvent(e);
   raycaster.setFromCamera(mouse, camera);
@@ -281,6 +295,18 @@ function handleBuildMouseDown(e) {
     }
 
     if (buildMode === "furniture") {
+      const currentType = currentFurnitureType;
+
+      // 門 / 窗：點擊牆體進行貼牆放置
+      if (currentType === "door" || currentType === "window") {
+        const hitWallForPlace = raycaster.intersectObjects(walls);
+        if (hitWallForPlace.length) {
+          const wall = hitWallForPlace[0].object;
+          placeDoorOrWindowOnWall(wall, currentType);
+          return;
+        }
+      }
+
       const hitFurniture = raycaster.intersectObjects(furnitures, true);
       if (hitFurniture.length) {
         const root = getFurnitureRoot(hitFurniture[0].object) || hitFurniture[0].object;
@@ -353,6 +379,12 @@ function handleBuildMouseMove(e) {
   }
 
   if (draggingFurniture && buildMode === "furniture" && draggedFurniture) {
+    const d = draggedFurniture.userData;
+    const t = d && d.type;
+    if (t === "door" || t === "window") {
+      // 門窗保持貼牆，不支持拖拽移動
+      return;
+    }
     draggedFurniture.position.x = x + 0.5;
     draggedFurniture.position.z = z + 0.5;
     if (!draggedFurniture.userData) {
