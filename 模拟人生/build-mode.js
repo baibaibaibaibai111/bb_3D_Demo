@@ -17,6 +17,10 @@ let wallStart = null;
 let lastWallGrid = null;
 let wallPreview = null;
 
+let floorStart = null;
+let lastFloorGrid = null;
+let floorPreview = null;
+
 let currentFurnitureType = "bed";
 let selectedFurniture = null;
 
@@ -93,6 +97,12 @@ function clearWallPreview() {
     if (wallPreview.material) wallPreview.material.dispose();
     wallPreview = null;
   }
+  if (floorPreview) {
+    scene.remove(floorPreview);
+    if (floorPreview.geometry) floorPreview.geometry.dispose();
+    if (floorPreview.material) floorPreview.material.dispose();
+    floorPreview = null;
+  }
 }
 
 function updateWallPreview(start, end) {
@@ -158,6 +168,47 @@ function updateWallPreview(start, end) {
   scene.add(wallPreview);
 }
 
+function updateFloorPreview(start, end) {
+  if (!start || !end) {
+    clearWallPreview();
+    return;
+  }
+
+  const startX = start.x;
+  const startZ = start.z;
+  const endX = end.x;
+  const endZ = end.z;
+
+  const minX = Math.min(startX, endX);
+  const maxX = Math.max(startX, endX);
+  const minZ = Math.min(startZ, endZ);
+  const maxZ = Math.max(startZ, endZ);
+
+  const width = Math.max(1, maxX - minX + 1);
+  const depth = Math.max(1, maxZ - minZ + 1);
+
+  const centerX = minX + width / 2;
+  const centerZ = minZ + depth / 2;
+
+  const boxGeo = new THREE.BoxGeometry(width, 0.02, depth);
+
+  const edges = new THREE.EdgesGeometry(boxGeo);
+  const material = new THREE.LineDashedMaterial({
+    color: 0x00ff00,
+    dashSize: 0.4,
+    gapSize: 0.2
+  });
+
+  const line = new THREE.LineSegments(edges, material);
+  line.position.set(centerX, 0.02, centerZ);
+  line.computeLineDistances();
+
+  // 共用 clearWallPreview 來清理所有預覽（牆體 + 地板）
+  clearWallPreview();
+  floorPreview = line;
+  scene.add(floorPreview);
+}
+
 function updateMouseFromEvent(e) {
   mouse.x = (e.clientX / innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / innerHeight) * 2 + 1;
@@ -217,6 +268,8 @@ function handleBuildMouseDown(e) {
     if (buildMode === "floor") {
       draggingFloor = true;
       controls.enabled = false;
+      floorStart = { x, z };
+      lastFloorGrid = { x, z };
       createFloor(x, z);
     }
 
@@ -288,6 +341,10 @@ function handleBuildMouseMove(e) {
 
   if (draggingFloor && buildMode === "floor") {
     createFloor(x, z);
+    lastFloorGrid = { x, z };
+    if (floorStart) {
+      updateFloorPreview(floorStart, lastFloorGrid);
+    }
   }
 
   if (draggingWall && buildMode === "wall") {
@@ -312,30 +369,54 @@ function resetBuildInteraction() {
   draggedFurniture = null;
   wallStart = null;
   lastWallGrid = null;
+   floorStart = null;
+   lastFloorGrid = null;
   clearWallPreview();
 }
 
 function handleBuildMouseUp(e) {
-  if (e.button === 0 && buildMode === "wall" && wallStart && lastWallGrid && draggingWall) {
-    const start = wallStart;
-    const end = lastWallGrid;
-    const dx = end.x - start.x;
-    const dz = end.z - start.z;
+  if (e.button === 0) {
+    // 牆體拖拽建牆
+    if (buildMode === "wall" && wallStart && lastWallGrid && draggingWall) {
+      const start = wallStart;
+      const end = lastWallGrid;
+      const dx = end.x - start.x;
+      const dz = end.z - start.z;
 
-    if (dx !== 0 || dz !== 0) {
-      if (Math.abs(dx) >= Math.abs(dz)) {
-        const z = start.z;
-        const from = Math.min(start.x, end.x);
-        const to = Math.max(start.x, end.x);
-        for (let i = from; i < to; i++) {
-          createWall(i, z, "x");
+      if (dx !== 0 || dz !== 0) {
+        if (Math.abs(dx) >= Math.abs(dz)) {
+          const z = start.z;
+          const from = Math.min(start.x, end.x);
+          const to = Math.max(start.x, end.x);
+          for (let i = from; i < to; i++) {
+            createWall(i, z, "x");
+          }
+        } else {
+          const x = start.x;
+          const from = Math.min(start.z, end.z);
+          const to = Math.max(start.z, end.z);
+          for (let i = from; i < to; i++) {
+            createWall(x, i, "z");
+          }
         }
-      } else {
-        const x = start.x;
-        const from = Math.min(start.z, end.z);
-        const to = Math.max(start.z, end.z);
-        for (let i = from; i < to; i++) {
-          createWall(x, i, "z");
+      }
+    }
+
+    // 地板矩形框選鋪設
+    if (buildMode === "floor" && floorStart && lastFloorGrid && draggingFloor) {
+      const startX = floorStart.x;
+      const startZ = floorStart.z;
+      const endX = lastFloorGrid.x;
+      const endZ = lastFloorGrid.z;
+
+      const minX = Math.min(startX, endX);
+      const maxX = Math.max(startX, endX);
+      const minZ = Math.min(startZ, endZ);
+      const maxZ = Math.max(startZ, endZ);
+
+      for (let ix = minX; ix <= maxX; ix++) {
+        for (let iz = minZ; iz <= maxZ; iz++) {
+          createFloor(ix, iz);
         }
       }
     }
