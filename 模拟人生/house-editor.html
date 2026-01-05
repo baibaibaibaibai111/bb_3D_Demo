@@ -64,6 +64,7 @@
   <div class="row">
     <button id="saveLayout">保存布局</button>
     <button id="loadLayout">加载布局</button>
+    <button id="undoLayout">撤销</button>
   </div>
   <div class="row" id="furniturePanel">
     家具：
@@ -138,6 +139,7 @@ const snap = v => Math.floor(v);
 const floors = [];
 const walls = [];
 const furnitures = [];
+const destroyAnimations = [];
 
 let gameMode = "build"; // build | live
 let buildMode = "floor"; // floor | wall | furniture
@@ -678,6 +680,67 @@ function setSelectedFurniture(obj) {
   }
 }
 
+function scheduleDestroy(targetArray, obj) {
+  if (!obj) return;
+  if (!obj.userData) obj.userData = {};
+  if (obj.userData._destroying) return;
+  obj.userData._destroying = true;
+
+  if (targetArray) {
+    const idx = targetArray.indexOf(obj);
+    if (idx !== -1) {
+      targetArray.splice(idx, 1);
+    }
+  }
+
+  destroyAnimations.push({
+    object: obj,
+    elapsed: 0,
+    duration: 0.2
+  });
+}
+
+function setObjectOpacity(obj, opacity) {
+  if (!obj) return;
+  if (typeof obj.traverse !== "function") return;
+  obj.traverse(child => {
+    if (child.isMesh && child.material) {
+      if (Array.isArray(child.material)) {
+        child.material.forEach(m => {
+          if (!m) return;
+          m.transparent = true;
+          m.opacity = opacity;
+        });
+      } else {
+        child.material.transparent = true;
+        child.material.opacity = opacity;
+      }
+    }
+  });
+}
+
+function removeObjectFromScene(obj) {
+  if (!obj) return;
+  scene.remove(obj);
+  if (typeof obj.traverse !== "function") return;
+  obj.traverse(child => {
+    if (child.geometry && typeof child.geometry.dispose === "function") {
+      child.geometry.dispose();
+    }
+    if (child.material) {
+      if (Array.isArray(child.material)) {
+        child.material.forEach(m => {
+          if (m && typeof m.dispose === "function") {
+            m.dispose();
+          }
+        });
+      } else if (typeof child.material.dispose === "function") {
+        child.material.dispose();
+      }
+    }
+  });
+}
+
 function clearWallPreview() {
   if (wallPreview) {
     scene.remove(wallPreview);
@@ -758,6 +821,7 @@ const loadBtn = document.getElementById("loadLayout");
 const furnitureTypeButtons = Array.from(document.querySelectorAll(".furniture-type-button"));
 const rotateFurnitureBtn = document.getElementById("rotateFurnitureBtn");
 const gameModeButtons = Array.from(document.querySelectorAll(".game-mode-button"));
+const undoBtn = document.getElementById("undoLayout");
 
 function updateCursor() {
   if (gameMode === "live") {
@@ -858,6 +922,12 @@ if (loadBtn) {
   });
 }
 
+if (undoBtn) {
+  undoBtn.addEventListener("click", () => {
+    undoLastLayoutChange();
+  });
+}
+
 if (rotateFurnitureBtn) {
   rotateFurnitureBtn.addEventListener("click", () => {
     rotateSelectedFurniture();
@@ -882,6 +952,12 @@ function rotateSelectedFurniture() {
 
 window.addEventListener("keydown", e => {
   if (gameMode === "build") {
+    if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
+      e.preventDefault();
+      undoLastLayoutChange();
+      return;
+    }
+
     if (e.key === "1") {
       setBuildMode("floor");
       console.log("切换为：地板模式");
@@ -1001,6 +1077,10 @@ window.addEventListener("mousedown", e => {
   const x = snap(hit[0].point.x);
   const z = snap(hit[0].point.z);
 
+  if (e.button === 0 || e.button === 2) {
+    saveLayoutSnapshot();
+  }
+
   // 左键
   if (e.button === 0) {
     if (buildMode === "destroy") {
@@ -1008,36 +1088,24 @@ window.addEventListener("mousedown", e => {
       if (hitFurniture.length) {
         const obj = hitFurniture[0].object;
         const root = getFurnitureRoot(obj) || obj;
-        scene.remove(root);
-        const idxF = furnitures.indexOf(root);
-        if (idxF !== -1) {
-          furnitures.splice(idxF, 1);
-        }
         if (selectedFurniture === root) {
           setSelectedFurniture(null);
         }
+        scheduleDestroy(furnitures, root);
         return;
       }
 
       const hitWall = raycaster.intersectObjects(walls);
       if (hitWall.length) {
         const w = hitWall[0].object;
-        scene.remove(w);
-        const idxW = walls.indexOf(w);
-        if (idxW !== -1) {
-          walls.splice(idxW, 1);
-        }
+        scheduleDestroy(walls, w);
         return;
       }
 
       const hitFloor = raycaster.intersectObjects(floors);
       if (hitFloor.length) {
         const f = hitFloor[0].object;
-        scene.remove(f);
-        const idx = floors.indexOf(f);
-        if (idx !== -1) {
-          floors.splice(idx, 1);
-        }
+        scheduleDestroy(floors, f);
       }
       return;
     }
@@ -1257,6 +1325,106 @@ function importLayout() {
   }
 }
 
+const layoutHistory = [];
+let isRestoringLayout = false;
+
+function getCurrentLayout() {
+  return {
+    floors: floors
+      .map(f => f.userData && f.userData.grid)
+      .filter(item => !!item),
+    walls: walls
+      .map(w => w.userData)
+      .filter(item => !!item),
+    furnitures: furnitures
+      .map(f => {
+        const d = f.userData;
+        if (!d || !d.grid) return null;
+        return {
+          x: d.grid.x,
+          z: d.grid.z,
+          type: d.type || "bed",
+          rotationY:
+            typeof d.rotationY === "number" ? d.rotationY : (f.rotation && f.rotation.y) || 0
+        };
+      })
+      .filter(item => !!item)
+  };
+}
+
+function applyLayout(data) {
+  // 清理當前所有物件與銷毀動畫
+  destroyAnimations.forEach(item => {
+    removeObjectFromScene(item.object);
+  });
+  destroyAnimations.length = 0;
+
+  floors.forEach(f => {
+    scene.remove(f);
+  });
+  walls.forEach(w => {
+    scene.remove(w);
+  });
+  furnitures.forEach(f => {
+    scene.remove(f);
+  });
+  floors.length = 0;
+  walls.length = 0;
+  furnitures.length = 0;
+
+  if (data && data.floors) {
+    data.floors.forEach(g => {
+      if (g && typeof g.x === "number" && typeof g.z === "number") {
+        createFloor(g.x, g.z);
+      }
+    });
+  }
+
+  if (data && data.walls) {
+    data.walls.forEach(w => {
+      if (w && typeof w.x === "number" && typeof w.z === "number" && w.dir) {
+        createWall(w.x, w.z, w.dir);
+      }
+    });
+  }
+
+  if (data && data.furnitures) {
+    data.furnitures.forEach(g => {
+      if (g && typeof g.x === "number" && typeof g.z === "number") {
+        createFurniture(
+          g.x,
+          g.z,
+          g.type || "bed",
+          typeof g.rotationY === "number" ? g.rotationY : 0
+        );
+      }
+    });
+  }
+}
+
+function saveLayoutSnapshot() {
+  if (isRestoringLayout) return;
+  const data = getCurrentLayout();
+  layoutHistory.push(JSON.stringify(data));
+  if (layoutHistory.length > 50) {
+    layoutHistory.shift();
+  }
+}
+
+function undoLastLayoutChange() {
+  if (!layoutHistory.length) return;
+  const json = layoutHistory.pop();
+  let data;
+  try {
+    data = JSON.parse(json);
+  } catch (e) {
+    return;
+  }
+  isRestoringLayout = true;
+  applyLayout(data);
+  isRestoringLayout = false;
+}
+
 /* ================= 渲染 ================= */
 function animate() {
   requestAnimationFrame(animate);
@@ -1385,6 +1553,27 @@ function animate() {
     if (leftLeg && rightLeg) {
       leftLeg.rotation.x = -counterSwing * 0.6;
       rightLeg.rotation.x = counterSwing * 0.6;
+    }
+  }
+
+  // 銷毀動畫：縮小 + 淡出，結束後從場景移除
+  if (destroyAnimations.length) {
+    for (let i = destroyAnimations.length - 1; i >= 0; i--) {
+      const item = destroyAnimations[i];
+      const obj = item.object;
+      item.elapsed += delta;
+      const t = Math.min(1, item.elapsed / item.duration);
+      const scale = Math.max(0.01, 1 - t);
+      if (obj && obj.scale) {
+        obj.scale.setScalar(scale);
+      }
+      const opacity = 1 - t;
+      setObjectOpacity(obj, opacity);
+
+      if (item.elapsed >= item.duration) {
+        removeObjectFromScene(obj);
+        destroyAnimations.splice(i, 1);
+      }
     }
   }
 
