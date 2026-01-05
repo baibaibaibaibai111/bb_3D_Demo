@@ -59,6 +59,7 @@
     <button class="mode-button" data-mode="floor">地板</button>
     <button class="mode-button" data-mode="wall">墙体</button>
     <button class="mode-button" data-mode="furniture">家具</button>
+    <button class="mode-button" data-mode="destroy">销毁</button>
   </div>
   <div class="row">
     <button id="saveLayout">保存布局</button>
@@ -711,18 +712,37 @@ function updateWallPreview(start, end) {
   }
 
   const height = 2.5;
-  const y = height;
-  const p1 = new THREE.Vector3(x1, y, z1);
-  const p2 = new THREE.Vector3(x2, y, z2);
+  const thickness = 0.1;
+  let length;
+  let centerX;
+  let centerZ;
+  let boxGeo;
 
-  const geometry = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+  if (Math.abs(dx) >= Math.abs(dz)) {
+    const from = Math.min(x1, x2);
+    const to = Math.max(x1, x2);
+    length = Math.max(1, to - from);
+    centerX = from + length / 2;
+    centerZ = z1;
+    boxGeo = new THREE.BoxGeometry(length, height, thickness);
+  } else {
+    const from = Math.min(z1, z2);
+    const to = Math.max(z1, z2);
+    length = Math.max(1, to - from);
+    centerX = x1;
+    centerZ = from + length / 2;
+    boxGeo = new THREE.BoxGeometry(thickness, height, length);
+  }
+
+  const edges = new THREE.EdgesGeometry(boxGeo);
   const material = new THREE.LineDashedMaterial({
     color: 0xffff00,
     dashSize: 0.4,
     gapSize: 0.2
   });
 
-  const line = new THREE.Line(geometry, material);
+  const line = new THREE.LineSegments(edges, material);
+  line.position.set(centerX, height / 2, centerZ);
   line.computeLineDistances();
 
   clearWallPreview();
@@ -738,6 +758,18 @@ const loadBtn = document.getElementById("loadLayout");
 const furnitureTypeButtons = Array.from(document.querySelectorAll(".furniture-type-button"));
 const rotateFurnitureBtn = document.getElementById("rotateFurnitureBtn");
 const gameModeButtons = Array.from(document.querySelectorAll(".game-mode-button"));
+
+function updateCursor() {
+  if (gameMode === "live") {
+    renderer.domElement.style.cursor = "default";
+    return;
+  }
+  if (buildMode === "destroy") {
+    renderer.domElement.style.cursor = "crosshair";
+  } else {
+    renderer.domElement.style.cursor = "default";
+  }
+}
 
 function setGameMode(mode) {
   if (gameMode === mode) return;
@@ -765,6 +797,7 @@ function setGameMode(mode) {
     pathIndex = 0;
     if (moveMarker) moveMarker.visible = false;
   }
+  updateCursor();
 }
 
 function setBuildMode(mode) {
@@ -778,6 +811,7 @@ function setBuildMode(mode) {
   modeButtons.forEach(btn => {
     btn.classList.toggle("active", btn.dataset.mode === buildMode);
   });
+  updateCursor();
 }
 
 function setCurrentFurnitureType(type) {
@@ -969,6 +1003,45 @@ window.addEventListener("mousedown", e => {
 
   // 左键
   if (e.button === 0) {
+    if (buildMode === "destroy") {
+      const hitFurniture = raycaster.intersectObjects(furnitures, true);
+      if (hitFurniture.length) {
+        const obj = hitFurniture[0].object;
+        const root = getFurnitureRoot(obj) || obj;
+        scene.remove(root);
+        const idxF = furnitures.indexOf(root);
+        if (idxF !== -1) {
+          furnitures.splice(idxF, 1);
+        }
+        if (selectedFurniture === root) {
+          setSelectedFurniture(null);
+        }
+        return;
+      }
+
+      const hitWall = raycaster.intersectObjects(walls);
+      if (hitWall.length) {
+        const w = hitWall[0].object;
+        scene.remove(w);
+        const idxW = walls.indexOf(w);
+        if (idxW !== -1) {
+          walls.splice(idxW, 1);
+        }
+        return;
+      }
+
+      const hitFloor = raycaster.intersectObjects(floors);
+      if (hitFloor.length) {
+        const f = hitFloor[0].object;
+        scene.remove(f);
+        const idx = floors.indexOf(f);
+        if (idx !== -1) {
+          floors.splice(idx, 1);
+        }
+      }
+      return;
+    }
+
     if (buildMode === "floor") {
       draggingFloor = true;
       controls.enabled = false;
