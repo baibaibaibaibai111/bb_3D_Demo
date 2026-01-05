@@ -237,18 +237,18 @@ function createFurniture(x, z, type, rotationY = 0) {
 
     highlightTarget = top;
   } else if (type === "door") {
-    const doorGeo = new THREE.BoxGeometry(0.08, 2.2, 1.0);
+    const doorGeo = new THREE.BoxGeometry(0.08, 2.2, 0.7);
     const doorMat = new THREE.MeshStandardMaterial({ color: mainColor });
     const door = new THREE.Mesh(doorGeo, doorMat);
-    // 稍微往本地 X 正方向偏移，避免與牆完全共面產生 Z-fighting
-    door.position.set(0.05, 1.1, 0);
+    // 放在牆的幾何中心，實際的牆面會在放置門時隱藏掉，避免穿模
+    door.position.set(0, 1.1, 0);
     door.castShadow = true;
     door.receiveShadow = true;
     group.add(door);
     highlightTarget = door;
   } else if (type === "window") {
-    const frameGeo = new THREE.BoxGeometry(0.08, 1.4, 1.2);
-    const glassGeo = new THREE.BoxGeometry(0.04, 1.0, 1.0);
+    const frameGeo = new THREE.BoxGeometry(0.08, 1.4, 0.9);
+    const glassGeo = new THREE.BoxGeometry(0.04, 1.0, 0.8);
     const frameMat = new THREE.MeshStandardMaterial({ color: mainColor });
     const glassMat = new THREE.MeshStandardMaterial({
       color: 0x90caf9,
@@ -257,13 +257,12 @@ function createFurniture(x, z, type, rotationY = 0) {
     });
 
     const frame = new THREE.Mesh(frameGeo, frameMat);
-    // 同樣沿本地 X 正方向偏移，避免與牆共面
-    frame.position.set(0.05, 1.3, 0);
+    frame.position.set(0, 1.3, 0);
     frame.castShadow = true;
     frame.receiveShadow = true;
 
     const glass = new THREE.Mesh(glassGeo, glassMat);
-    glass.position.set(0.09, 1.3, 0);
+    glass.position.set(0, 1.3, 0);
     glass.castShadow = false;
     glass.receiveShadow = false;
 
@@ -586,6 +585,35 @@ function scheduleDestroy(targetArray, obj) {
     }
   }
 
+  // 如果是門或窗被刪除，恢復其附著的牆體可見，關閉開口標記
+  if (targetArray === furnitures) {
+    const d = obj.userData;
+    if (d && (d.type === "door" || d.type === "window") && d.attachedWall) {
+      const w = d.attachedWall;
+      if (w.userData) {
+        w.userData.hasOpening = false;
+        if (w.userData.caps && w.userData.caps.length) {
+          w.userData.caps.forEach(cap => {
+            const idxW = walls.indexOf(cap);
+            if (idxW !== -1) {
+              walls.splice(idxW, 1);
+            }
+            scene.remove(cap);
+            if (cap.geometry && typeof cap.geometry.dispose === "function") {
+              cap.geometry.dispose();
+            }
+            if (cap.material && typeof cap.material.dispose === "function") {
+              cap.material.dispose();
+            }
+          });
+          w.userData.caps = [];
+        }
+      }
+      w.visible = true;
+      d.attachedWall = null;
+    }
+  }
+
   destroyAnimations.push({
     object: obj,
     elapsed: 0,
@@ -616,6 +644,7 @@ function updateWallsForCameraView(camera) {
 
   if (wallVisibilityMode === "normal") {
     walls.forEach(w => {
+      if (w.userData && w.userData.hasOpening) return;
       w.visible = true;
     });
     return;
@@ -625,8 +654,9 @@ function updateWallsForCameraView(camera) {
 
   if (!walls.length) return;
 
-  // 預設全部可見，後面再隱藏「相機與房間中心之間」整層的牆
+  // 預設全部可見（有門窗開口的牆除外），後面再隱藏「相機與房間中心之間」整層的牆
   walls.forEach(w => {
+    if (w.userData && w.userData.hasOpening) return;
     w.visible = true;
   });
 

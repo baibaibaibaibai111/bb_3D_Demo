@@ -233,7 +233,151 @@ function placeDoorOrWindowOnWall(wall, type) {
   const rotY = dir === "x" ? Math.PI / 2 : 0;
 
   // 使用牆所在的網格座標來創建門或窗，佈局函數會根據旋轉自動對齊到牆中心
-  createFurniture(wx, wz, type, rotY);
+  const obj = createFurniture(wx, wz, type, rotY);
+
+  // 門窗放上去後，這段牆的中間留出開口，僅保留未被覆蓋的牆體部分
+  if (obj && wall.userData) {
+    wall.userData.hasOpening = true;
+    if (!obj.userData) obj.userData = {};
+    obj.userData.attachedWall = wall;
+    createOpeningCapsForWall(wall, type);
+    wall.visible = false;
+  }
+}
+
+function createOpeningCapsForWall(wall, type) {
+  if (!wall || !wall.userData) return;
+  const data = wall.userData;
+  if (data.caps && data.caps.length) return;
+
+  const height = 2.5;
+  const thickness = 0.1;
+  const dir = data.dir;
+  const wallPos = wall.position;
+  const material = wall.material;
+
+  const caps = [];
+
+  if (type === "door") {
+    const openingWidth = 0.7; // 門在牆上的寬度，需與門幾何對應
+    const sideWidth = (1 - openingWidth) / 2;
+    const doorHeight = 2.2;
+
+    if (sideWidth > 0) {
+      const sideGeo =
+        dir === "x"
+          ? new THREE.BoxGeometry(sideWidth, height, thickness)
+          : new THREE.BoxGeometry(thickness, height, sideWidth);
+
+      const leftCap = new THREE.Mesh(sideGeo, material.clone());
+      const rightCap = new THREE.Mesh(sideGeo.clone(), material.clone());
+
+      if (dir === "x") {
+        leftCap.position.set(wallPos.x - (openingWidth / 2 + sideWidth / 2), height / 2, wallPos.z);
+        rightCap.position.set(wallPos.x + (openingWidth / 2 + sideWidth / 2), height / 2, wallPos.z);
+      } else {
+        leftCap.position.set(wallPos.x, height / 2, wallPos.z - (openingWidth / 2 + sideWidth / 2));
+        rightCap.position.set(wallPos.x, height / 2, wallPos.z + (openingWidth / 2 + sideWidth / 2));
+      }
+
+      [leftCap, rightCap].forEach(cap => {
+        cap.castShadow = true;
+        cap.receiveShadow = true;
+        cap.userData = { x: data.x, z: data.z, dir: data.dir };
+        scene.add(cap);
+        walls.push(cap);
+        caps.push(cap);
+      });
+    }
+
+    const capHeight = height - doorHeight;
+    if (capHeight > 0) {
+      const topGeo =
+        dir === "x"
+          ? new THREE.BoxGeometry(openingWidth, capHeight, thickness)
+          : new THREE.BoxGeometry(thickness, capHeight, openingWidth);
+      const topCap = new THREE.Mesh(topGeo, material.clone());
+      if (dir === "x") {
+        topCap.position.set(wallPos.x, doorHeight + capHeight / 2, wallPos.z);
+      } else {
+        topCap.position.set(wallPos.x, doorHeight + capHeight / 2, wallPos.z);
+      }
+      topCap.castShadow = true;
+      topCap.receiveShadow = true;
+      topCap.userData = { x: data.x, z: data.z, dir: data.dir };
+      scene.add(topCap);
+      walls.push(topCap);
+      caps.push(topCap);
+    }
+  } else if (type === "window") {
+    const openingWidth = 0.9; // 窗戶在牆上的寬度，需與窗幾何對應
+    const sideWidth = (1 - openingWidth) / 2;
+    const windowBottom = 0.6; // 窗戶下緣高度
+    const windowTop = 2.0; // 窗戶上緣高度
+    const bottomHeight = windowBottom;
+    const topHeight = height - windowTop;
+
+    if (sideWidth > 0) {
+      const sideGeo =
+        dir === "x"
+          ? new THREE.BoxGeometry(sideWidth, height, thickness)
+          : new THREE.BoxGeometry(thickness, height, sideWidth);
+
+      const leftCap = new THREE.Mesh(sideGeo, material.clone());
+      const rightCap = new THREE.Mesh(sideGeo.clone(), material.clone());
+
+      if (dir === "x") {
+        leftCap.position.set(wallPos.x - (openingWidth / 2 + sideWidth / 2), height / 2, wallPos.z);
+        rightCap.position.set(wallPos.x + (openingWidth / 2 + sideWidth / 2), height / 2, wallPos.z);
+      } else {
+        leftCap.position.set(wallPos.x, height / 2, wallPos.z - (openingWidth / 2 + sideWidth / 2));
+        rightCap.position.set(wallPos.x, height / 2, wallPos.z + (openingWidth / 2 + sideWidth / 2));
+      }
+
+      [leftCap, rightCap].forEach(cap => {
+        cap.castShadow = true;
+        cap.receiveShadow = true;
+        cap.userData = { x: data.x, z: data.z, dir: data.dir };
+        scene.add(cap);
+        walls.push(cap);
+        caps.push(cap);
+      });
+    }
+
+    if (bottomHeight > 0) {
+      const geoB =
+        dir === "x"
+          ? new THREE.BoxGeometry(openingWidth, bottomHeight, thickness)
+          : new THREE.BoxGeometry(thickness, bottomHeight, openingWidth);
+      const capB = new THREE.Mesh(geoB, material.clone());
+      capB.position.set(wallPos.x, bottomHeight / 2, wallPos.z);
+      capB.castShadow = true;
+      capB.receiveShadow = true;
+      capB.userData = { x: data.x, z: data.z, dir: data.dir };
+      scene.add(capB);
+      walls.push(capB);
+      caps.push(capB);
+    }
+
+    if (topHeight > 0) {
+      const geoT =
+        dir === "x"
+          ? new THREE.BoxGeometry(openingWidth, topHeight, thickness)
+          : new THREE.BoxGeometry(thickness, topHeight, openingWidth);
+      const capT = new THREE.Mesh(geoT, material.clone());
+      capT.position.set(wallPos.x, windowTop + topHeight / 2, wallPos.z);
+      capT.castShadow = true;
+      capT.receiveShadow = true;
+      capT.userData = { x: data.x, z: data.z, dir: data.dir };
+      scene.add(capT);
+      walls.push(capT);
+      caps.push(capT);
+    }
+  }
+
+  if (caps.length) {
+    data.caps = caps;
+  }
 }
 
 function handleBuildMouseDown(e) {
