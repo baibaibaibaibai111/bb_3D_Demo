@@ -155,6 +155,10 @@ function createFurniture(x, z, type, rotationY = 0) {
   else if (type === "door") mainColor = 0x795548;
   else if (type === "window") mainColor = 0x90a4ae;
   else if (type === "ceilingLight") mainColor = 0xfff59d;
+  else if (type === "tv") mainColor = 0x2196f3;
+  else if (type === "food") mainColor = 0xff7043;
+  else if (type === "toilet") mainColor = 0xffffff;
+  else if (type === "sink") mainColor = 0x90caf9;
 
   const group = new THREE.Group();
   let highlightTarget = null;
@@ -236,6 +240,101 @@ function createFurniture(x, z, type, rotationY = 0) {
     });
 
     highlightTarget = top;
+  } else if (type === "tv") {
+    const baseGeo = new THREE.BoxGeometry(0.8, 0.1, 0.3);
+    const screenGeo = new THREE.BoxGeometry(0.8, 0.45, 0.05);
+    const baseMat = new THREE.MeshStandardMaterial({ color: 0x424242 });
+    const screenMat = new THREE.MeshStandardMaterial({
+      color: mainColor,
+      emissive: mainColor,
+      emissiveIntensity: 0.6
+    });
+
+    const base = new THREE.Mesh(baseGeo, baseMat);
+    base.position.set(0, 0.05, 0);
+    base.castShadow = true;
+    base.receiveShadow = true;
+
+    const screen = new THREE.Mesh(screenGeo, screenMat);
+    screen.position.set(0, 0.4, -0.1);
+    screen.castShadow = true;
+    screen.receiveShadow = true;
+
+    group.add(base);
+    group.add(screen);
+    highlightTarget = screen;
+  } else if (type === "food") {
+    const plateGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.05, 16);
+    const foodGeo = new THREE.SphereGeometry(0.15, 12, 12);
+    const plateMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    const foodMat = new THREE.MeshStandardMaterial({ color: mainColor });
+
+    const plate = new THREE.Mesh(plateGeo, plateMat);
+    plate.position.set(0, 0.05, 0);
+    plate.castShadow = true;
+    plate.receiveShadow = true;
+
+    const foodMesh = new THREE.Mesh(foodGeo, foodMat);
+    foodMesh.position.set(0, 0.15, 0);
+    foodMesh.castShadow = true;
+    foodMesh.receiveShadow = true;
+
+    group.add(plate);
+    group.add(foodMesh);
+    highlightTarget = foodMesh;
+  } else if (type === "toilet") {
+    const baseGeo = new THREE.BoxGeometry(0.4, 0.2, 0.5);
+    const tankGeo = new THREE.BoxGeometry(0.4, 0.35, 0.15);
+    const seatGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.05, 16);
+    const mat = new THREE.MeshStandardMaterial({ color: mainColor });
+
+    const base = new THREE.Mesh(baseGeo, mat);
+    base.position.set(0, 0.1, 0);
+    base.castShadow = true;
+    base.receiveShadow = true;
+
+    const tank = new THREE.Mesh(tankGeo, mat);
+    tank.position.set(0, 0.4, -0.15);
+    tank.castShadow = true;
+    tank.receiveShadow = true;
+
+    const seat = new THREE.Mesh(seatGeo, mat);
+    seat.position.set(0, 0.28, 0.05);
+    seat.rotation.x = Math.PI / 2;
+    seat.castShadow = true;
+    seat.receiveShadow = true;
+
+    group.add(base);
+    group.add(tank);
+    group.add(seat);
+    highlightTarget = seat;
+  } else if (type === "sink") {
+    const basinGeo = new THREE.BoxGeometry(0.6, 0.2, 0.4);
+    const standGeo = new THREE.BoxGeometry(0.2, 0.6, 0.2);
+    const faucetGeo = new THREE.BoxGeometry(0.05, 0.15, 0.05);
+    const basinMat = new THREE.MeshStandardMaterial({ color: mainColor });
+    const standMat = new THREE.MeshStandardMaterial({ color: 0xb0bec5 });
+    const faucetMat = new THREE.MeshStandardMaterial({ color: 0x90a4ae });
+
+    const stand = new THREE.Mesh(standGeo, standMat);
+    stand.position.set(0, 0.3, 0);
+    stand.castShadow = true;
+    stand.receiveShadow = true;
+
+    const basin = new THREE.Mesh(basinGeo, basinMat);
+    basin.position.set(0, 0.65, 0);
+    basin.castShadow = true;
+    basin.receiveShadow = true;
+
+    const faucet = new THREE.Mesh(faucetGeo, faucetMat);
+    faucet.position.set(0, 0.85, -0.1);
+    faucet.castShadow = true;
+    faucet.receiveShadow = true;
+
+    group.add(stand);
+    group.add(basin);
+    group.add(faucet);
+    highlightTarget = basin;
   } else if (type === "door") {
     const doorGeo = new THREE.BoxGeometry(0.08, 2.2, 0.7);
     const doorMat = new THREE.MeshStandardMaterial({ color: mainColor });

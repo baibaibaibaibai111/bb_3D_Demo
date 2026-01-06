@@ -1,5 +1,5 @@
 import { THREE, scene, camera, ground, raycaster, mouse, snap } from "./core.js";
-import { floors, furnitures, findPath, canMoveCharacterTo } from "./layout.js";
+import { floors, furnitures, findPath, canMoveCharacterTo, scheduleDestroy } from "./layout.js";
 import { getFurnitureRoot } from "./build-mode.js";
 
 /* ================= 生活模式與角色邏輯 ================= */
@@ -531,6 +531,180 @@ function enterSitOnSofaPose(furniture, furnRot) {
   interactionTimer = 0;
 }
 
+function enterWatchTVPose(furniture, furnRot) {
+  ensureCharacter();
+  if (!character) return;
+
+  const offset = 1.2;
+  const dirX = Math.sin(furnRot);
+  const dirZ = Math.cos(furnRot);
+
+  character.position.x = furniture.position.x - dirX * offset;
+  character.position.z = furniture.position.z - dirZ * offset;
+  character.position.y = 0;
+  const yaw = furnRot + Math.PI;
+  character.rotation.set(0, yaw, 0);
+
+  const body = character.userData && character.userData.body;
+  const head = character.userData && character.userData.head;
+  const leftArm = character.userData && character.userData.leftArm;
+  const rightArm = character.userData && character.userData.rightArm;
+  const leftLeg = character.userData && character.userData.leftLeg;
+  const rightLeg = character.userData && character.userData.rightLeg;
+  const baseBodyY = character.userData && character.userData.baseBodyY;
+  const baseHeadY = character.userData && character.userData.baseHeadY;
+
+  if (body && typeof baseBodyY === "number") {
+    body.position.y = baseBodyY;
+    body.rotation.set(0, 0, 0);
+  }
+  if (head && typeof baseHeadY === "number") {
+    head.position.y = baseHeadY;
+    head.rotation.set(0, 0, 0);
+  }
+  if (leftArm) leftArm.rotation.set(0, 0, 0);
+  if (rightArm) rightArm.rotation.set(0, 0, 0);
+  if (leftLeg) leftLeg.rotation.set(0, 0, 0);
+  if (rightLeg) rightLeg.rotation.set(0, 0, 0);
+
+  hasMoveTarget = false;
+  pathCells = null;
+  pathIndex = 0;
+  if (moveMarker) moveMarker.visible = false;
+
+  interactionState = "tv_watch";
+  interactionTimer = 0;
+}
+
+function enterEatFoodPose(furniture, furnRot) {
+  ensureCharacter();
+  if (!character) return;
+
+  const offset = 0.6;
+  const dirX = Math.sin(furnRot);
+  const dirZ = Math.cos(furnRot);
+
+  character.position.x = furniture.position.x + dirX * offset;
+  character.position.z = furniture.position.z + dirZ * offset;
+  character.position.y = 0;
+  character.rotation.set(0, furnRot, 0);
+
+  const body = character.userData && character.userData.body;
+  const head = character.userData && character.userData.head;
+  const leftArm = character.userData && character.userData.leftArm;
+  const rightArm = character.userData && character.userData.rightArm;
+  const leftLeg = character.userData && character.userData.leftLeg;
+  const rightLeg = character.userData && character.userData.rightLeg;
+  const baseBodyY = character.userData && character.userData.baseBodyY;
+  const baseHeadY = character.userData && character.userData.baseHeadY;
+
+  if (body && typeof baseBodyY === "number") {
+    body.position.y = baseBodyY;
+    body.rotation.set(0, 0, 0);
+  }
+  if (head && typeof baseHeadY === "number") {
+    head.position.y = baseHeadY;
+    head.rotation.set(0, 0, 0);
+  }
+  if (leftLeg) leftLeg.rotation.set(0, 0, 0);
+  if (rightLeg) rightLeg.rotation.set(0, 0, 0);
+
+  hasMoveTarget = false;
+  pathCells = null;
+  pathIndex = 0;
+  if (moveMarker) moveMarker.visible = false;
+
+  scheduleDestroy(furnitures, furniture);
+  interactionState = "eat_food";
+  interactionTimer = 0;
+}
+
+function enterUseToiletPose(furniture, furnRot) {
+  ensureCharacter();
+  if (!character) return;
+
+  const offset = 0.6;
+  const dirX = Math.sin(furnRot);
+  const dirZ = Math.cos(furnRot);
+
+  character.position.x = furniture.position.x + dirX * offset;
+  character.position.z = furniture.position.z + dirZ * offset;
+  character.position.y = 0;
+  character.rotation.set(0, furnRot, 0);
+
+  const body = character.userData && character.userData.body;
+  const head = character.userData && character.userData.head;
+  const leftArm = character.userData && character.userData.leftArm;
+  const rightArm = character.userData && character.userData.rightArm;
+  const leftLeg = character.userData && character.userData.leftLeg;
+  const rightLeg = character.userData && character.userData.rightLeg;
+  const baseBodyY = character.userData && character.userData.baseBodyY;
+  const baseHeadY = character.userData && character.userData.baseHeadY;
+
+  if (body && typeof baseBodyY === "number") {
+    body.position.y = baseBodyY;
+    body.rotation.set(0, 0, 0);
+  }
+  if (head && typeof baseHeadY === "number") {
+    head.position.y = baseHeadY;
+    head.rotation.set(0, 0, 0);
+  }
+  if (leftArm) leftArm.rotation.set(0, 0, 0);
+  if (rightArm) rightArm.rotation.set(0, 0, 0);
+  if (leftLeg) leftLeg.rotation.set(-Math.PI * 0.7 * 0.5, 0, 0);
+  if (rightLeg) rightLeg.rotation.set(-Math.PI * 0.7 * 0.5, 0, 0);
+
+  hasMoveTarget = false;
+  pathCells = null;
+  pathIndex = 0;
+  if (moveMarker) moveMarker.visible = false;
+
+  interactionState = "toilet_use";
+  interactionTimer = 0;
+}
+
+function enterWashSinkPose(furniture, furnRot) {
+  ensureCharacter();
+  if (!character) return;
+
+  const offset = 0.6;
+  const dirX = Math.sin(furnRot);
+  const dirZ = Math.cos(furnRot);
+
+  character.position.x = furniture.position.x + dirX * offset;
+  character.position.z = furniture.position.z + dirZ * offset;
+  character.position.y = 0;
+  character.rotation.set(0, furnRot, 0);
+
+  const body = character.userData && character.userData.body;
+  const head = character.userData && character.userData.head;
+  const leftArm = character.userData && character.userData.leftArm;
+  const rightArm = character.userData && character.userData.rightArm;
+  const leftLeg = character.userData && character.userData.leftLeg;
+  const rightLeg = character.userData && character.userData.rightLeg;
+  const baseBodyY = character.userData && character.userData.baseBodyY;
+  const baseHeadY = character.userData && character.userData.baseHeadY;
+
+  if (body && typeof baseBodyY === "number") {
+    body.position.y = baseBodyY;
+    body.rotation.set(0, 0, 0);
+  }
+  if (head && typeof baseHeadY === "number") {
+    head.position.y = baseHeadY;
+    head.rotation.set(0, 0, 0);
+  }
+  if (leftLeg) leftLeg.rotation.set(0, 0, 0);
+  if (rightLeg) rightLeg.rotation.set(0, 0, 0);
+
+  hasMoveTarget = false;
+  pathCells = null;
+  pathIndex = 0;
+  if (moveMarker) moveMarker.visible = false;
+
+  interactionState = "sink_wash";
+  interactionTimer = 0;
+}
+
 function enterPillowFightPose(furniture, furnRot) {
   ensureCharacter();
   if (!character) return;
@@ -589,6 +763,14 @@ function showInteractionMenuForFurniture(furniture, clientX, clientY) {
     );
   } else if (type === "sofa") {
     options.push({ id: "sofa_sit", label: "坐在沙发上" });
+  } else if (type === "tv") {
+    options.push({ id: "tv_watch", label: "看电视" });
+  } else if (type === "food") {
+    options.push({ id: "eat_food", label: "吃掉" });
+  } else if (type === "toilet") {
+    options.push({ id: "use_toilet", label: "上厕所" });
+  } else if (type === "sink") {
+    options.push({ id: "wash_sink", label: "洗漱" });
   } else if (type === "door") {
     const d = furniture.userData || {};
     const isOpen = !!d.doorOpenTarget;
@@ -836,6 +1018,14 @@ function updateLive(delta) {
             enterSitOnBedEdgePose(furn, furnRot);
           } else if (pendingInteraction.actionId === "sofa_sit") {
             enterSitOnSofaPose(furn, furnRot);
+          } else if (pendingInteraction.actionId === "tv_watch") {
+            enterWatchTVPose(furn, furnRot);
+          } else if (pendingInteraction.actionId === "eat_food") {
+            enterEatFoodPose(furn, furnRot);
+          } else if (pendingInteraction.actionId === "use_toilet") {
+            enterUseToiletPose(furn, furnRot);
+          } else if (pendingInteraction.actionId === "wash_sink") {
+            enterWashSinkPose(furn, furnRot);
           } else if (pendingInteraction.actionId === "pillow_fight") {
             enterPillowFightPose(furn, furnRot);
           }
