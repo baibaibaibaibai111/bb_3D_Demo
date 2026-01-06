@@ -487,6 +487,50 @@ function enterSitOnBedEdgePose(furniture, furnRot) {
   interactionTimer = 0;
 }
 
+function enterSitOnSofaPose(furniture, furnRot) {
+  ensureCharacter();
+  if (!character) return;
+
+  const offset = 0.7;
+  const dirX = Math.sin(furnRot);
+  const dirZ = Math.cos(furnRot);
+
+  character.position.x = furniture.position.x + dirX * offset;
+  character.position.z = furniture.position.z + dirZ * offset;
+  character.position.y = 0;
+  character.rotation.set(0, furnRot, 0);
+
+  const body = character.userData && character.userData.body;
+  const head = character.userData && character.userData.head;
+  const leftArm = character.userData && character.userData.leftArm;
+  const rightArm = character.userData && character.userData.rightArm;
+  const leftLeg = character.userData && character.userData.leftLeg;
+  const rightLeg = character.userData && character.userData.rightLeg;
+  const baseBodyY = character.userData && character.userData.baseBodyY;
+  const baseHeadY = character.userData && character.userData.baseHeadY;
+
+  if (body && typeof baseBodyY === "number") {
+    body.position.y = baseBodyY;
+    body.rotation.set(0, 0, 0);
+  }
+  if (head && typeof baseHeadY === "number") {
+    head.position.y = baseHeadY;
+    head.rotation.set(0, 0, 0);
+  }
+  if (leftArm) leftArm.rotation.set(0, 0, 0);
+  if (rightArm) rightArm.rotation.set(0, 0, 0);
+  if (leftLeg) leftLeg.rotation.set(-Math.PI * 0.7 * 0.5, 0, 0);
+  if (rightLeg) rightLeg.rotation.set(-Math.PI * 0.7 * 0.5, 0, 0);
+
+  hasMoveTarget = false;
+  pathCells = null;
+  pathIndex = 0;
+  if (moveMarker) moveMarker.visible = false;
+
+  interactionState = "sofa_sit";
+  interactionTimer = 0;
+}
+
 function enterPillowFightPose(furniture, furnRot) {
   ensureCharacter();
   if (!character) return;
@@ -543,6 +587,8 @@ function showInteractionMenuForFurniture(furniture, clientX, clientY) {
       { id: "sit_edge", label: "坐在床边" },
       { id: "pillow_fight", label: "枕头大战（占位）" }
     );
+  } else if (type === "sofa") {
+    options.push({ id: "sofa_sit", label: "坐在沙发上" });
   } else if (type === "door") {
     const d = furniture.userData || {};
     const isOpen = !!d.doorOpenTarget;
@@ -788,6 +834,8 @@ function updateLive(delta) {
             interactionTimer = 0;
           } else if (pendingInteraction.actionId === "sit_edge") {
             enterSitOnBedEdgePose(furn, furnRot);
+          } else if (pendingInteraction.actionId === "sofa_sit") {
+            enterSitOnSofaPose(furn, furnRot);
           } else if (pendingInteraction.actionId === "pillow_fight") {
             enterPillowFightPose(furn, furnRot);
           }
@@ -892,6 +940,24 @@ function updateLive(delta) {
   }
 
   if (interactionState === "sit_edge") {
+    interactionTimer += delta;
+    const idle = Math.sin(interactionTimer * 2) * 0.02;
+    const baseBodyY = character.userData && character.userData.baseBodyY;
+    const baseHeadY = character.userData && character.userData.baseHeadY;
+    if (body && typeof baseBodyY === "number") {
+      body.position.y = baseBodyY + idle;
+    }
+    if (head && typeof baseHeadY === "number") {
+      head.position.y = baseHeadY + idle * 0.5;
+    }
+    if (leftArm) leftArm.rotation.x = 0;
+    if (rightArm) rightArm.rotation.x = 0;
+    if (leftLeg) leftLeg.rotation.x = -Math.PI * 0.7 * 0.5;
+    if (rightLeg) rightLeg.rotation.x = -Math.PI * 0.7 * 0.5;
+    return;
+  }
+
+  if (interactionState === "sofa_sit") {
     interactionTimer += delta;
     const idle = Math.sin(interactionTimer * 2) * 0.02;
     const baseBodyY = character.userData && character.userData.baseBodyY;
