@@ -35,7 +35,7 @@ function getBuildMode() {
 
 function setBuildMode(mode) {
   buildMode = mode;
-  if (buildMode === "wall") {
+  if (buildMode === "wall" || buildMode === "wallLine") {
     wallStart = null;
     lastWallGrid = null;
   } else {
@@ -111,46 +111,83 @@ function updateWallPreview(start, end) {
     return;
   }
 
-  const dx = end.x - start.x;
-  const dz = end.z - start.z;
-  if (dx === 0 && dz === 0) {
+  if (buildMode === "wallLine") {
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    if (dx === 0 && dz === 0) {
+      clearWallPreview();
+      return;
+    }
+
+    let x1 = start.x;
+    let z1 = start.z;
+    let x2 = end.x;
+    let z2 = end.z;
+
+    if (Math.abs(dx) >= Math.abs(dz)) {
+      z2 = z1;
+    } else {
+      x2 = x1;
+    }
+
+    const height = 2.5;
+    const thickness = 0.1;
+    let length;
+    let centerX;
+    let centerZ;
+    let boxGeo;
+
+    if (Math.abs(dx) >= Math.abs(dz)) {
+      const from = Math.min(x1, x2);
+      const to = Math.max(x1, x2);
+      length = Math.max(1, to - from);
+      centerX = from + length / 2;
+      centerZ = z1;
+      boxGeo = new THREE.BoxGeometry(length, height, thickness);
+    } else {
+      const from = Math.min(z1, z2);
+      const to = Math.max(z1, z2);
+      length = Math.max(1, to - from);
+      centerX = x1;
+      centerZ = from + length / 2;
+      boxGeo = new THREE.BoxGeometry(thickness, height, length);
+    }
+
+    const edges = new THREE.EdgesGeometry(boxGeo);
+    const material = new THREE.LineDashedMaterial({
+      color: 0xffff00,
+      dashSize: 0.4,
+      gapSize: 0.2
+    });
+
+    const line = new THREE.LineSegments(edges, material);
+    line.position.set(centerX, height / 2, centerZ);
+    line.computeLineDistances();
+
     clearWallPreview();
+    wallPreview = line;
+    scene.add(wallPreview);
     return;
   }
 
-  let x1 = start.x;
-  let z1 = start.z;
-  let x2 = end.x;
-  let z2 = end.z;
+  const startX = start.x;
+  const startZ = start.z;
+  const endX = end.x;
+  const endZ = end.z;
 
-  if (Math.abs(dx) >= Math.abs(dz)) {
-    z2 = z1;
-  } else {
-    x2 = x1;
-  }
+  const minX = Math.min(startX, endX);
+  const maxX = Math.max(startX, endX);
+  const minZ = Math.min(startZ, endZ);
+  const maxZ = Math.max(startZ, endZ);
+
+  const width = Math.max(1, maxX - minX + 1);
+  const depth = Math.max(1, maxZ - minZ + 1);
+
+  const centerX = minX + width / 2;
+  const centerZ = minZ + depth / 2;
 
   const height = 2.5;
-  const thickness = 0.1;
-  let length;
-  let centerX;
-  let centerZ;
-  let boxGeo;
-
-  if (Math.abs(dx) >= Math.abs(dz)) {
-    const from = Math.min(x1, x2);
-    const to = Math.max(x1, x2);
-    length = Math.max(1, to - from);
-    centerX = from + length / 2;
-    centerZ = z1;
-    boxGeo = new THREE.BoxGeometry(length, height, thickness);
-  } else {
-    const from = Math.min(z1, z2);
-    const to = Math.max(z1, z2);
-    length = Math.max(1, to - from);
-    centerX = x1;
-    centerZ = from + length / 2;
-    boxGeo = new THREE.BoxGeometry(thickness, height, length);
-  }
+  const boxGeo = new THREE.BoxGeometry(width, height, depth);
 
   const edges = new THREE.EdgesGeometry(boxGeo);
   const material = new THREE.LineDashedMaterial({
@@ -431,7 +468,7 @@ function handleBuildMouseDown(e) {
       createFloor(x, z);
     }
 
-    if (buildMode === "wall") {
+    if (buildMode === "wall" || buildMode === "wallLine") {
       draggingWall = true;
       controls.enabled = false;
       wallStart = { x, z };
@@ -517,7 +554,7 @@ function handleBuildMouseMove(e) {
     }
   }
 
-  if (draggingWall && buildMode === "wall") {
+  if (draggingWall && (buildMode === "wall" || buildMode === "wallLine")) {
     lastWallGrid = { x, z };
     updateWallPreview(wallStart, lastWallGrid);
   }
@@ -553,27 +590,50 @@ function resetBuildInteraction() {
 function handleBuildMouseUp(e) {
   if (e.button === 0) {
     // 牆體拖拽建牆
-    if (buildMode === "wall" && wallStart && lastWallGrid && draggingWall) {
-      const start = wallStart;
-      const end = lastWallGrid;
-      const dx = end.x - start.x;
-      const dz = end.z - start.z;
+    if (wallStart && lastWallGrid && draggingWall) {
+      if (buildMode === "wallLine") {
+        const start = wallStart;
+        const end = lastWallGrid;
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
 
-      if (dx !== 0 || dz !== 0) {
-        if (Math.abs(dx) >= Math.abs(dz)) {
-          const z = start.z;
-          const from = Math.min(start.x, end.x);
-          const to = Math.max(start.x, end.x);
-          for (let i = from; i < to; i++) {
-            createWall(i, z, "x");
+        if (dx !== 0 || dz !== 0) {
+          if (Math.abs(dx) >= Math.abs(dz)) {
+            const z = start.z;
+            const from = Math.min(start.x, end.x);
+            const to = Math.max(start.x, end.x);
+            for (let i = from; i < to; i++) {
+              createWall(i, z, "x");
+            }
+          } else {
+            const x = start.x;
+            const from = Math.min(start.z, end.z);
+            const to = Math.max(start.z, end.z);
+            for (let i = from; i < to; i++) {
+              createWall(x, i, "z");
+            }
           }
-        } else {
-          const x = start.x;
-          const from = Math.min(start.z, end.z);
-          const to = Math.max(start.z, end.z);
-          for (let i = from; i < to; i++) {
-            createWall(x, i, "z");
-          }
+        }
+      } else if (buildMode === "wall") {
+        const startX = wallStart.x;
+        const startZ = wallStart.z;
+        const endX = lastWallGrid.x;
+        const endZ = lastWallGrid.z;
+
+        const minX = Math.min(startX, endX);
+        const maxX = Math.max(startX, endX);
+        const minZ = Math.min(startZ, endZ);
+        const maxZ = Math.max(startZ, endZ);
+
+        // 四邊牆：上、下、左、右，形成一個矩形房間
+        for (let x = minX; x <= maxX; x++) {
+          createWall(x, minZ, "x");      // 北邊
+          createWall(x, maxZ + 1, "x");  // 南邊
+        }
+
+        for (let z = minZ; z <= maxZ; z++) {
+          createWall(minX, z, "z");      // 西邊
+          createWall(maxX + 1, z, "z");  // 東邊
         }
       }
     }

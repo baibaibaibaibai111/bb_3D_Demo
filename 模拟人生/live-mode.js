@@ -1,5 +1,6 @@
 import { THREE, scene, camera, ground, raycaster, mouse, snap } from "./core.js";
 import { floors, furnitures, findPath, canMoveCharacterTo } from "./layout.js";
+import { getFurnitureRoot } from "./build-mode.js";
 
 /* ================= 生活模式與角色邏輯 ================= */
 
@@ -259,16 +260,6 @@ function resetCharacterPose() {
   if (rightArm) rightArm.rotation.set(0, 0, 0);
   if (leftLeg) leftLeg.rotation.set(0, 0, 0);
   if (rightLeg) rightLeg.rotation.set(0, 0, 0);
-}
-
-function getFurnitureRoot(target) {
-  if (!target) return null;
-  let current = target;
-  while (current) {
-    if (furnitures.includes(current)) return current;
-    current = current.parent;
-  }
-  return null;
 }
 
 function getBedHeadYaw(furniture) {
@@ -560,6 +551,10 @@ function showInteractionMenuForFurniture(furniture, clientX, clientY) {
     const d = furniture.userData || {};
     const isOpen = !!d.windowOpenTarget;
     options.push({ id: isOpen ? "window_close" : "window_open", label: isOpen ? "关窗" : "开窗" });
+  } else if (type === "ceilingLight") {
+    const d = furniture.userData || {};
+    const isOn = d.lightOn !== false;
+    options.push({ id: isOn ? "light_off" : "light_on", label: isOn ? "关灯" : "开灯" });
   }
 
   if (!options.length) {
@@ -592,6 +587,28 @@ function showInteractionMenuForFurniture(furniture, clientX, clientY) {
       } else if (opt.id === "window_close") {
         if (!furniture.userData) furniture.userData = {};
         furniture.userData.windowOpenTarget = false;
+      } else if (opt.id === "light_on") {
+        if (!furniture.userData) furniture.userData = {};
+        furniture.userData.lightOn = true;
+        furniture.traverse(child => {
+          if (child.isLight) {
+            child.visible = true;
+          }
+          if (child.isMesh && child.material && child.material.emissive) {
+            child.material.emissiveIntensity = 0.8;
+          }
+        });
+      } else if (opt.id === "light_off") {
+        if (!furniture.userData) furniture.userData = {};
+        furniture.userData.lightOn = false;
+        furniture.traverse(child => {
+          if (child.isLight) {
+            child.visible = false;
+          }
+          if (child.isMesh && child.material && child.material.emissive) {
+            child.material.emissiveIntensity = 0.0;
+          }
+        });
       } else {
         startFurnitureInteraction(furniture, opt.id);
       }
