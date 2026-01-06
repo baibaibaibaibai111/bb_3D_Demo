@@ -22,6 +22,51 @@ let interactionState = null; // "sleep" | "sit_edge" | "pillow_fight" | null
 let interactionTimer = 0;
 let sleepTarget = null; // { furniture, furnRot } | null
 
+// 需求與心情狀態
+const NEED_KEYS = ["social", "sleep", "hunger", "bladder", "fun", "hygiene"];
+
+let needs = {
+  social: 100,
+  sleep: 100,
+  hunger: 100,
+  bladder: 100,
+  fun: 100,
+  hygiene: 100
+};
+
+let needsTickEnabled = true;
+let moodAuto = "开心";
+let moodOverride = null;
+
+// 每秒基礎衰減速度（大約幾分鐘才會從 100 掉到 0）
+const NEED_DECAY_PER_SEC = {
+  social: 0.18,
+  sleep: 0.14,
+  hunger: 0.2,
+  bladder: 0.22,
+  fun: 0.18,
+  hygiene: 0.16
+};
+
+// 在對應互動中額外回復速度
+const NEED_RECOVERY_PER_SEC = {
+  sleep: 1.2,
+  hunger: 1.2,
+  bladder: 1.4,
+  fun: 1.0,
+  hygiene: 1.0
+};
+
+// 需求面板 DOM
+let needsPanelElement = null;
+let needsPanelBodyElement = null;
+let needsPanelCollapsed = false;
+let moodTextElement = null;
+const needBarElements = {};
+const needValueElements = {};
+let moodToastElement = null;
+let isAutoInteraction = false;
+
 function updateCharacterRotationTowards(dirX, dirZ, delta) {
   if (!character) return;
   const len = Math.hypot(dirX, dirZ) || 1;
@@ -178,6 +223,7 @@ function resetLiveState() {
   interactionState = null;
   interactionTimer = 0;
   resetCharacterPose();
+  updateNeedsUI();
 }
 
 function handleLiveKeyDown(e) {
@@ -262,6 +308,211 @@ function resetCharacterPose() {
   if (rightLeg) rightLeg.rotation.set(0, 0, 0);
 }
 
+function clampNeedValue(v) {
+  return Math.max(0, Math.min(100, v));
+}
+
+function applyNeedDelta(name, delta) {
+  if (!needs || !Object.prototype.hasOwnProperty.call(needs, name)) return;
+  const current = typeof needs[name] === "number" ? needs[name] : 0;
+  needs[name] = clampNeedValue(current + delta);
+}
+
+function updateMoodFromNeeds() {
+  const info = getLowestNeedInfo();
+  const minNeed = info && typeof info.value === "number" ? info.value : 0;
+  let label = "开心";
+  if (minNeed >= 80) label = "非常开心";
+  else if (minNeed >= 60) label = "开心";
+  else if (minNeed >= 40) label = "一般";
+  else if (minNeed >= 20) label = "不舒服";
+  else label = "崩溃中";
+  moodAuto = label;
+}
+
+function getCurrentMoodLabel() {
+  return moodOverride || moodAuto;
+}
+
+function getLowestNeedInfo() {
+  if (!needs || !NEED_KEYS || !NEED_KEYS.length) return null;
+
+  let minNeed = 100;
+  let minKey = null;
+  NEED_KEYS.forEach(key => {
+    const raw = typeof needs[key] === "number" ? needs[key] : 0;
+    const v = clampNeedValue(raw);
+    if (v < minNeed) {
+      minNeed = v;
+      minKey = key;
+    }
+  });
+
+  if (!minKey) return null;
+  return { key: minKey, value: minNeed };
+}
+
+// 根據當前最低需求值，計算一個行為用的心情倍率（影響移動速度/走路幅度）
+function getMoodSpeedMultiplier() {
+  const info = getLowestNeedInfo();
+  const minNeed = info && typeof info.value === "number" ? info.value : 100;
+
+  // 和文字心情對應：非常開心 / 開心 / 一般 / 不舒服 / 崩潰中
+  if (minNeed >= 80) return 1.25; // 非常開心：走路更快、更有活力
+  if (minNeed >= 60) return 1.0;  // 開心：正常速度
+  if (minNeed >= 40) return 0.85; // 一般：略微放慢
+  if (minNeed >= 20) return 0.7;  // 不舒服：明顯變慢
+  return 0.55;                    // 崩潰中：很慢
+}
+
+function initNeedsUI() {
+  if (needsPanelElement) return;
+  const panel = document.getElementById("needsPanel");
+  if (!panel) return;
+
+  needsPanelElement = panel;
+  needsPanelBodyElement = document.getElementById("needsPanelBody");
+  moodTextElement = document.getElementById("moodText");
+
+  const header = document.getElementById("needsPanelHeader");
+  if (header && needsPanelBodyElement) {
+    header.addEventListener("click", () => {
+      needsPanelCollapsed = !needsPanelCollapsed;
+      needsPanelElement.classList.toggle("collapsed", needsPanelCollapsed);
+    });
+  }
+
+  NEED_KEYS.forEach(key => {
+    const barId = `need-${key}-bar`;
+    const valueId = `need-${key}-value`;
+    needBarElements[key] = document.getElementById(barId);
+    needValueElements[key] = document.getElementById(valueId);
+  });
+
+  updateNeedsUI();
+}
+
+function updateNeedsUI() {
+  if (!needsPanelElement) {
+    initNeedsUI();
+    if (!needsPanelElement) return;
+  }
+
+  if (moodTextElement) {
+    moodTextElement.textContent = getCurrentMoodLabel();
+  }
+
+  NEED_KEYS.forEach(key => {
+    const raw = typeof needs[key] === "number" ? needs[key] : 0;
+    const v = clampNeedValue(raw);
+    const bar = needBarElements[key];
+    const label = needValueElements[key];
+    if (bar) {
+      bar.style.width = `${v}%`;
+      if (v >= 60) bar.style.background = "#4caf50";
+      else if (v >= 30) bar.style.background = "#ffc107";
+      else bar.style.background = "#f44336";
+    }
+    if (label) {
+      label.textContent = `${Math.round(v)}`;
+    }
+  });
+}
+
+function tickNeeds(delta) {
+  if (!needsTickEnabled) return;
+
+  // 基礎衰減
+  NEED_KEYS.forEach(key => {
+    const rate = NEED_DECAY_PER_SEC[key] || 0;
+    if (rate > 0) {
+      applyNeedDelta(key, -rate * delta);
+    }
+  });
+
+  // 互動中的回復
+  if (interactionState === "sleep" || interactionState === "sleep_enter") {
+    applyNeedDelta("sleep", (NEED_RECOVERY_PER_SEC.sleep || 0) * delta);
+  }
+  if (interactionState === "eat_food") {
+    applyNeedDelta("hunger", (NEED_RECOVERY_PER_SEC.hunger || 0) * delta);
+  }
+  if (
+    interactionState === "tv_watch" ||
+    interactionState === "sofa_sit" ||
+    interactionState === "pillow_fight"
+  ) {
+    applyNeedDelta("fun", (NEED_RECOVERY_PER_SEC.fun || 0) * delta);
+  }
+  if (interactionState === "sink_wash") {
+    applyNeedDelta("hygiene", (NEED_RECOVERY_PER_SEC.hygiene || 0) * delta);
+  }
+  if (interactionState === "toilet_use") {
+    applyNeedDelta("bladder", (NEED_RECOVERY_PER_SEC.bladder || 0) * delta);
+  }
+
+  updateMoodFromNeeds();
+  updateNeedsUI();
+}
+
+function getNeedsSnapshot() {
+  const result = {};
+  NEED_KEYS.forEach(key => {
+    result[key] = typeof needs[key] === "number" ? clampNeedValue(needs[key]) : 0;
+  });
+  return result;
+}
+
+function setNeedValue(name, value) {
+  if (!Object.prototype.hasOwnProperty.call(needs, name)) return;
+  const v = Number(value);
+  if (!Number.isFinite(v)) return;
+  needs[name] = clampNeedValue(v);
+  updateMoodFromNeeds();
+  updateNeedsUI();
+}
+
+function addNeedValue(name, delta) {
+  if (!Object.prototype.hasOwnProperty.call(needs, name)) return;
+  const d = Number(delta);
+  if (!Number.isFinite(d)) return;
+  applyNeedDelta(name, d);
+  updateMoodFromNeeds();
+  updateNeedsUI();
+}
+
+function setAllNeeds(values) {
+  if (!values) return;
+  NEED_KEYS.forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(values, key)) {
+      const v = Number(values[key]);
+      if (Number.isFinite(v)) {
+        needs[key] = clampNeedValue(v);
+      }
+    }
+  });
+  updateMoodFromNeeds();
+  updateNeedsUI();
+}
+
+function setMoodOverride(label) {
+  if (label == null) {
+    moodOverride = null;
+  } else {
+    moodOverride = String(label);
+  }
+  updateNeedsUI();
+}
+
+function clearMoodOverride() {
+  moodOverride = null;
+  updateNeedsUI();
+}
+
+function setNeedsTickEnabled(enabled) {
+  needsTickEnabled = !!enabled;
+}
+
 function getBedHeadYaw(furniture) {
   if (!furniture || typeof furniture.localToWorld !== "function") return 0;
   // 床模型的床頭在本地座標 (0, 0, -1) 方向上（對應 head 方塊 z = -0.7）
@@ -319,10 +570,75 @@ function hideInteractionMenu() {
   }
 }
 
+function showMoodToast(message) {
+  if (typeof document === "undefined") return;
+
+  if (!moodToastElement) {
+    const div = document.createElement("div");
+    div.style.position = "fixed";
+    div.style.left = "50%";
+    div.style.top = "24px";
+    div.style.transform = "translateX(-50%)";
+    div.style.padding = "4px 10px";
+    div.style.borderRadius = "4px";
+    div.style.background = "rgba(0, 0, 0, 0.85)";
+    div.style.color = "#fff";
+    div.style.fontSize = "12px";
+    div.style.zIndex = "1100";
+    div.style.pointerEvents = "none";
+    document.body.appendChild(div);
+    moodToastElement = div;
+  }
+
+  moodToastElement.textContent = message;
+  moodToastElement.style.display = "block";
+
+  if (moodToastElement._hideTimer) {
+    clearTimeout(moodToastElement._hideTimer);
+  }
+  moodToastElement._hideTimer = setTimeout(() => {
+    if (!moodToastElement) return;
+    moodToastElement.style.display = "none";
+  }, 1500);
+}
+
 function startFurnitureInteraction(furniture, actionId) {
   if (!furniture || !furniture.userData || !furniture.userData.grid) return;
   ensureCharacter();
   if (!character) return;
+
+  const auto = isAutoInteraction;
+  isAutoInteraction = false;
+
+  // 心情很差時，有機率甚至必定拒絕玩家點擊的互動
+  if (!auto) {
+    const moodLabel = getCurrentMoodLabel();
+
+    // 崩潰中：玩家點的互動 100% 拒絕
+    if (moodLabel === "崩溃中") {
+      showMoodToast("我不想做……（我現在崩潰中）");
+      pendingInteraction = null;
+      hasMoveTarget = false;
+      pathCells = null;
+      pathIndex = 0;
+      if (moveMarker) moveMarker.visible = false;
+      return;
+    }
+
+    // 不舒服：有一定機率拒絕
+    if (moodLabel === "不舒服") {
+      const refuseChance = 0.4;
+      if (Math.random() < refuseChance) {
+        showMoodToast("我不太想做……");
+        pendingInteraction = null;
+        hasMoveTarget = false;
+        pathCells = null;
+        pathIndex = 0;
+        if (moveMarker) moveMarker.visible = false;
+        return;
+      }
+    }
+  }
 
   const bedX = furniture.userData.grid.x;
   const bedZ = furniture.userData.grid.z;
@@ -379,6 +695,118 @@ function startFurnitureInteraction(furniture, actionId) {
   moveMarker.position.x = moveTarget.x;
   moveMarker.position.z = moveTarget.z;
   moveMarker.visible = true;
+}
+
+function findFurnitureForNeed(needKey) {
+  if (!character || !furnitures || !furnitures.length) return null;
+
+  let targetType = null;
+  let actionId = null;
+  switch (needKey) {
+    case "sleep":
+      targetType = "bed";
+      actionId = "sleep";
+      break;
+    case "hunger":
+      targetType = "food";
+      actionId = "eat_food";
+      break;
+    case "bladder":
+      targetType = "toilet";
+      actionId = "use_toilet";
+      break;
+    case "fun":
+      targetType = "tv";
+      actionId = "tv_watch";
+      break;
+    case "hygiene":
+      targetType = "sink";
+      actionId = "wash_sink";
+      break;
+    default:
+      return null;
+  }
+
+  let bestFurniture = null;
+  let bestDistSq = Infinity;
+  for (let i = 0; i < furnitures.length; i++) {
+    const f = furnitures[i];
+    const t = f.userData && f.userData.type;
+    if (t !== targetType) continue;
+    const dx = f.position.x - character.position.x;
+    const dz = f.position.z - character.position.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < bestDistSq) {
+      bestDistSq = d2;
+      bestFurniture = f;
+    }
+  }
+
+  if (!bestFurniture) return null;
+  return { furniture: bestFurniture, actionId };
+}
+
+function maybeAutoSatisfyCriticalNeed() {
+  const info = getLowestNeedInfo();
+  if (!info || typeof info.value !== "number") return;
+
+  const value = clampNeedValue(info.value);
+  const CRITICAL = 20;
+  if (value > CRITICAL) return;
+
+  // 玩家正在用按鍵控制時，不強行接管
+  if (moveForward || moveBackward || moveLeft || moveRight) return;
+
+  const moodLabel = getCurrentMoodLabel();
+
+  // 已經在對應需求的互動中，就不要再打斷
+  if (interactionState) {
+    if (
+      (info.key === "sleep" && (interactionState === "sleep" || interactionState === "sleep_enter")) ||
+      (info.key === "hunger" && interactionState === "eat_food") ||
+      (info.key === "bladder" && interactionState === "toilet_use") ||
+      (info.key === "fun" &&
+        (interactionState === "tv_watch" || interactionState === "sofa_sit" || interactionState === "pillow_fight")) ||
+      (info.key === "hygiene" && interactionState === "sink_wash")
+    ) {
+      return;
+    }
+  }
+
+  ensureCharacter();
+  if (!character) return;
+
+  const target = findFurnitureForNeed(info.key);
+  if (!target) return;
+
+  // 如果當前已經在朝同一個目標移動，就不重複設置
+  if (
+    hasMoveTarget &&
+    pendingInteraction &&
+    pendingInteraction.furniture === target.furniture &&
+    pendingInteraction.actionId === target.actionId
+  ) {
+    return;
+  }
+
+  // 打斷當前移動和非關鍵互動，優先滿足最糟需求
+  hasMoveTarget = false;
+  pathCells = null;
+  pathIndex = 0;
+  if (moveMarker) moveMarker.visible = false;
+  interactionState = null;
+  interactionTimer = 0;
+  sleepTarget = null;
+  resetCharacterPose();
+
+  isAutoInteraction = true;
+  startFurnitureInteraction(target.furniture, target.actionId);
+
+  if (moodLabel === "崩溃中") {
+    showMoodToast("我受不了了，先去滿足自己的需求！");
+  } else {
+    showMoodToast("心情好差，只想先滿足自己的需求…");
+  }
 }
 
 function enterSleepPose(furniture, furnRot) {
@@ -914,7 +1342,10 @@ function handleLiveMouseDown(e) {
 function updateLive(delta) {
   if (!character) return;
 
-  const speed = 3;
+  maybeAutoSatisfyCriticalNeed();
+
+  const moodFactor = getMoodSpeedMultiplier();
+  const speed = 3 * moodFactor;
   let dirX = 0;
   let dirZ = 0;
   if (moveForward) dirZ -= 1;
@@ -1192,21 +1623,21 @@ function updateLive(delta) {
   }
 
   if (movedThisFrame) {
-    walkPhase += delta * 10;
+    walkPhase += delta * 10 * getMoodSpeedMultiplier();
   } else {
     walkPhase = Math.max(0, walkPhase - delta * 10);
   }
 
   const walkAmount = Math.sin(walkPhase) * 0.05;
   if (body) {
-    body.position.y = 0.5 + walkAmount;
+    body.position.y = 0.5 + walkAmount * moodFactor;
   }
   if (head) {
-    head.position.y = 1.1 + walkAmount * 0.6;
+    head.position.y = 1.1 + walkAmount * 0.6 * moodFactor;
   }
 
-  const swing = Math.sin(walkPhase) * 0.4;
-  const counterSwing = Math.cos(walkPhase) * 0.4;
+  const swing = Math.sin(walkPhase) * 0.4 * moodFactor;
+  const counterSwing = Math.cos(walkPhase) * 0.4 * moodFactor;
 
   if (leftArm && rightArm) {
     leftArm.rotation.x = swing;
@@ -1217,6 +1648,22 @@ function updateLive(delta) {
     leftLeg.rotation.x = -counterSwing * 0.6;
     rightLeg.rotation.x = counterSwing * 0.6;
   }
+  tickNeeds(delta);
+}
+
+// 在全局暴露一組簡單的控制 API，方便在控制台調試
+if (typeof window !== "undefined") {
+  window.simNeeds = {
+    get: getNeedsSnapshot,
+    set: setNeedValue,
+    add: addNeedValue,
+    setAll: setAllNeeds,
+    setMood: setMoodOverride,
+    clearMood: clearMoodOverride,
+    pause: () => setNeedsTickEnabled(false),
+    resume: () => setNeedsTickEnabled(true),
+    enableTick: setNeedsTickEnabled
+  };
 }
 
 export {

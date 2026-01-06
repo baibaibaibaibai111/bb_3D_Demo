@@ -41,6 +41,100 @@
       background: #4caf50;
       border-color: #4caf50;
     }
+    #needsPanel {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      color: #fff;
+      font-size: 12px;
+      background: rgba(0, 0, 0, 0.7);
+      border-top: 1px solid #444;
+      box-sizing: border-box;
+      padding: 4px 10px 6px;
+    }
+    #needsPanelHeader {
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 12px;
+      margin-bottom: 4px;
+      user-select: none;
+    }
+    #needsPanelBody {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px 12px;
+    }
+    #needsPanel.collapsed #needsPanelBody {
+      display: none;
+    }
+    .mood-row {
+      margin-right: 16px;
+      min-width: 120px;
+    }
+    .need-row {
+      display: flex;
+      align-items: center;
+      margin: 2px 0;
+    }
+    .need-label {
+      width: 40px;
+    }
+    .need-bar {
+      position: relative;
+      width: 150px;
+      height: 8px;
+      background: #333;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-right: 4px;
+    }
+    .need-bar-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 100%;
+      background: #4caf50;
+      transition: width 0.15s linear, background 0.15s linear;
+    }
+    .need-value {
+      width: 28px;
+      text-align: right;
+      font-family: monospace;
+      font-size: 11px;
+    }
+    .mood-input {
+      width: 80px;
+      margin-left: 6px;
+      padding: 1px 4px;
+      font-size: 11px;
+      border-radius: 3px;
+      border: 1px solid #555;
+      background: #111;
+      color: #fff;
+    }
+    .mood-btn,
+    .need-ctrl-button,
+    .need-adjust {
+      margin-left: 4px;
+      padding: 1px 4px;
+      font-size: 11px;
+      border-radius: 3px;
+      border: 1px solid #555;
+      background: #222;
+      color: #fff;
+      cursor: pointer;
+    }
+    .need-adjust {
+      padding: 0 4px;
+      font-size: 10px;
+      line-height: 1.2;
+    }
+    .need-ctrl-button {
+      height: 18px;
+    }
   </style>
 </head>
 <body>
@@ -88,6 +182,78 @@
     <button class="furniture-type-button" data-type="toilet">马桶</button>
     <button class="furniture-type-button" data-type="sink">洗手池</button>
     <button id="rotateFurnitureBtn">旋转选中家具</button>
+  </div>
+</div>
+
+<div id="needsPanel">
+  <div id="needsPanelHeader">小人状态（点击收起/展开）</div>
+  <div id="needsPanelBody">
+    <div class="mood-row">
+      心情：<span id="moodText">开心</span>
+      <input id="moodInput" class="mood-input" type="text" placeholder="输入心情..." />
+      <button id="moodApplyBtn" class="mood-btn">设置</button>
+      <button id="moodAutoBtn" class="mood-btn">自动</button>
+    </div>
+    <div class="need-row">
+      <span class="need-label">社交</span>
+      <div class="need-bar" data-need="social">
+        <div class="need-bar-fill" id="need-social-bar"></div>
+      </div>
+      <span class="need-value" id="need-social-value">100</span>
+      <button class="need-adjust" data-need="social" data-delta="-10">-</button>
+      <button class="need-adjust" data-need="social" data-delta="10">+</button>
+    </div>
+    <div class="need-row">
+      <span class="need-label">睡眠</span>
+      <div class="need-bar" data-need="sleep">
+        <div class="need-bar-fill" id="need-sleep-bar"></div>
+      </div>
+      <span class="need-value" id="need-sleep-value">100</span>
+      <button class="need-adjust" data-need="sleep" data-delta="-10">-</button>
+      <button class="need-adjust" data-need="sleep" data-delta="10">+</button>
+    </div>
+    <div class="need-row">
+      <span class="need-label">饱腹</span>
+      <div class="need-bar" data-need="hunger">
+        <div class="need-bar-fill" id="need-hunger-bar"></div>
+      </div>
+      <span class="need-value" id="need-hunger-value">100</span>
+      <button class="need-adjust" data-need="hunger" data-delta="-10">-</button>
+      <button class="need-adjust" data-need="hunger" data-delta="10">+</button>
+    </div>
+    <div class="need-row">
+      <span class="need-label">膀胱</span>
+      <div class="need-bar" data-need="bladder">
+        <div class="need-bar-fill" id="need-bladder-bar"></div>
+      </div>
+      <span class="need-value" id="need-bladder-value">100</span>
+      <button class="need-adjust" data-need="bladder" data-delta="-10">-</button>
+      <button class="need-adjust" data-need="bladder" data-delta="10">+</button>
+    </div>
+    <div class="need-row">
+      <span class="need-label">娱乐</span>
+      <div class="need-bar" data-need="fun">
+        <div class="need-bar-fill" id="need-fun-bar"></div>
+      </div>
+      <span class="need-value" id="need-fun-value">100</span>
+      <button class="need-adjust" data-need="fun" data-delta="-10">-</button>
+      <button class="need-adjust" data-need="fun" data-delta="10">+</button>
+    </div>
+    <div class="need-row">
+      <span class="need-label">清洁</span>
+      <div class="need-bar" data-need="hygiene">
+        <div class="need-bar-fill" id="need-hygiene-bar"></div>
+      </div>
+      <span class="need-value" id="need-hygiene-value">100</span>
+      <button class="need-adjust" data-need="hygiene" data-delta="-10">-</button>
+      <button class="need-adjust" data-need="hygiene" data-delta="10">+</button>
+    </div>
+    <div class="need-row">
+      <span class="need-label">控制</span>
+      <button id="needsPauseBtn" class="need-ctrl-button">暂停变化</button>
+      <button id="needsResumeBtn" class="need-ctrl-button">恢复变化</button>
+      <button id="needsFullBtn" class="need-ctrl-button">全部拉满</button>
+    </div>
   </div>
 </div>
 

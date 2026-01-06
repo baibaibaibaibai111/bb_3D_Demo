@@ -44,6 +44,16 @@ const redoBtn = document.getElementById("redoLayout");
 const wallVisibilityButtons = Array.from(
   document.querySelectorAll(".wall-visibility-button")
 );
+const needAdjustButtons = Array.from(
+  document.querySelectorAll(".need-adjust")
+);
+const needBars = Array.from(document.querySelectorAll(".need-bar"));
+const needsPauseBtn = document.getElementById("needsPauseBtn");
+const needsResumeBtn = document.getElementById("needsResumeBtn");
+const needsFullBtn = document.getElementById("needsFullBtn");
+const moodInput = document.getElementById("moodInput");
+const moodApplyBtn = document.getElementById("moodApplyBtn");
+const moodAutoBtn = document.getElementById("moodAutoBtn");
 
 /* ================= UI 行為 ================= */
 
@@ -132,6 +142,23 @@ function initButtons() {
         setGameMode(btn.dataset.gameMode);
       });
     });
+
+    // 點擊進度條直接設置數值（0-100）
+    needBars.forEach(bar => {
+      bar.addEventListener("click", e => {
+        const name = bar.dataset.need;
+        if (!name) return;
+
+        const rect = bar.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const ratio = Math.max(0, Math.min(1, x / rect.width));
+        const value = Math.round(ratio * 100);
+
+        if (typeof simNeeds.set === "function") {
+          simNeeds.set(name, value);
+        }
+      });
+    });
   }
 
   modeButtons.forEach(btn => {
@@ -181,6 +208,56 @@ function initButtons() {
     rotateFurnitureBtn.addEventListener("click", () => {
       rotateSelectedFurniture();
     });
+  }
+
+  // 需求與心情控制面板（使用 live-mode 中掛到 window 的 simNeeds API）
+  const simNeeds = window.simNeeds;
+  if (simNeeds) {
+    needAdjustButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        const name = btn.dataset.need;
+        const delta = parseFloat(btn.dataset.delta || "0");
+        if (!name || !Number.isFinite(delta) || delta === 0) return;
+        simNeeds.add(name, delta);
+      });
+    });
+
+    if (needsPauseBtn) {
+      needsPauseBtn.addEventListener("click", () => {
+        simNeeds.pause();
+      });
+    }
+    if (needsResumeBtn) {
+      needsResumeBtn.addEventListener("click", () => {
+        simNeeds.resume();
+      });
+    }
+    if (needsFullBtn) {
+      needsFullBtn.addEventListener("click", () => {
+        simNeeds.setAll({
+          social: 100,
+          sleep: 100,
+          hunger: 100,
+          bladder: 100,
+          fun: 100,
+          hygiene: 100
+        });
+      });
+    }
+
+    if (moodApplyBtn && moodInput) {
+      moodApplyBtn.addEventListener("click", () => {
+        const v = moodInput.value.trim();
+        if (v) {
+          simNeeds.setMood(v);
+        }
+      });
+    }
+    if (moodAutoBtn) {
+      moodAutoBtn.addEventListener("click", () => {
+        simNeeds.clearMood();
+      });
+    }
   }
 }
 
