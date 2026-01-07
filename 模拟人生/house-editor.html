@@ -135,6 +135,77 @@
     .need-ctrl-button {
       height: 18px;
     }
+
+    /* 小人性格設定面板 */
+    #personalityPanel {
+      position: fixed;
+      right: 10px;
+      top: 120px;
+      width: 220px;
+      max-height: 260px;
+      overflow-y: auto;
+      background: rgba(0, 0, 0, 0.85);
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 6px 8px;
+      color: #fff;
+      font-size: 12px;
+      box-sizing: border-box;
+      display: none;
+      z-index: 900;
+    }
+    #personalityPanel.visible {
+      display: block;
+    }
+    #personalityPanel h3 {
+      margin: 0 0 4px;
+      font-size: 12px;
+    }
+    .personality-section-title {
+      margin: 4px 0 2px;
+      font-weight: bold;
+      font-size: 12px;
+    }
+    .personality-traits {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2px 6px;
+    }
+    .personality-traits label {
+      white-space: nowrap;
+    }
+    .personality-pref-row {
+      display: flex;
+      align-items: center;
+      margin: 2px 0;
+    }
+    .personality-pref-label {
+      flex: 0 0 56px;
+    }
+    .personality-pref {
+      flex: 1 1 auto;
+      font-size: 11px;
+      background: #111;
+      color: #fff;
+      border-radius: 3px;
+      border: 1px solid #555;
+      padding: 1px 2px;
+    }
+    .personality-pref-slider {
+      flex: 1 1 auto;
+    }
+    .personality-pref-value {
+      width: 32px;
+      text-align: right;
+      font-size: 11px;
+      margin-left: 4px;
+      opacity: 0.9;
+    }
+    .personality-hint {
+      margin-top: 4px;
+      font-size: 11px;
+      opacity: 0.8;
+    }
   </style>
 </head>
 <body>
@@ -255,6 +326,106 @@
       <button id="needsFullBtn" class="need-ctrl-button">全部拉满</button>
     </div>
   </div>
+</div>
+
+<div id="personalityPanel">
+  <h3>性格设置</h3>
+  <div class="personality-section">
+    <div class="personality-section-title">性格标签</div>
+    <div class="personality-traits">
+      <label><input type="checkbox" class="personality-trait" value="愛玩" /> 爱玩</label>
+      <label><input type="checkbox" class="personality-trait" value="宅" /> 宅</label>
+      <label><input type="checkbox" class="personality-trait" value="愛社交" /> 爱社交</label>
+      <label><input type="checkbox" class="personality-trait" value="內向" /> 内向</label>
+      <label><input type="checkbox" class="personality-trait" value="貪吃" /> 贪吃</label>
+      <label><input type="checkbox" class="personality-trait" value="愛乾淨" /> 爱干净</label>
+      <label><input type="checkbox" class="personality-trait" value="工作狂" /> 工作狂</label>
+      <label><input type="checkbox" class="personality-trait" value="愛睡覺" /> 爱睡觉</label>
+      <label><input type="checkbox" class="personality-trait" value="邋遢" /> 邋遢</label>
+    </div>
+  </div>
+  <div class="personality-section">
+    <div class="personality-section-title">行为偏好</div>
+    <div class="personality-pref-row">
+      <span class="personality-pref-label">看电视</span>
+      <input
+        type="range"
+        class="personality-pref-slider"
+        data-action="tv_watch"
+        min="0"
+        max="2"
+        step="0.01"
+        value="1"
+      />
+      <span class="personality-pref-value" data-action="tv_watch">1.00</span>
+    </div>
+    <div class="personality-pref-row">
+      <span class="personality-pref-label">睡觉</span>
+      <input
+        type="range"
+        class="personality-pref-slider"
+        data-action="sleep"
+        min="0"
+        max="2"
+        step="0.01"
+        value="1"
+      />
+      <span class="personality-pref-value" data-action="sleep">1.00</span>
+    </div>
+    <div class="personality-pref-row">
+      <span class="personality-pref-label">吃饭</span>
+      <input
+        type="range"
+        class="personality-pref-slider"
+        data-action="eat_food"
+        min="0"
+        max="2"
+        step="0.01"
+        value="1"
+      />
+      <span class="personality-pref-value" data-action="eat_food">1.00</span>
+    </div>
+    <div class="personality-pref-row">
+      <span class="personality-pref-label">洗漱</span>
+      <input
+        type="range"
+        class="personality-pref-slider"
+        data-action="wash_sink"
+        min="0"
+        max="2"
+        step="0.01"
+        value="1"
+      />
+      <span class="personality-pref-value" data-action="wash_sink">1.00</span>
+    </div>
+    <div class="personality-pref-row">
+      <span class="personality-pref-label">上厕所</span>
+      <input
+        type="range"
+        class="personality-pref-slider"
+        data-action="use_toilet"
+        min="0"
+        max="2"
+        step="0.01"
+        value="1"
+      />
+      <span class="personality-pref-value" data-action="use_toilet">1.00</span>
+    </div>
+    <div class="personality-pref-row">
+      <span class="personality-pref-label">社交</span>
+      <input
+        type="range"
+        class="personality-pref-slider"
+        data-action="social"
+        min="0"
+        max="2"
+        step="0.01"
+        value="1"
+      />
+      <span class="personality-pref-value" data-action="social">1.00</span>
+    </div>
+  </div>
+  <div class="personality-hint">提示：在生活模式下点击小人，可以打开/关闭此面板。</div>
 </div>
 
 <script type="importmap">

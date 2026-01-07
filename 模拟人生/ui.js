@@ -54,6 +54,37 @@ const needsFullBtn = document.getElementById("needsFullBtn");
 const moodInput = document.getElementById("moodInput");
 const moodApplyBtn = document.getElementById("moodApplyBtn");
 const moodAutoBtn = document.getElementById("moodAutoBtn");
+const personalityPanel = document.getElementById("personalityPanel");
+const personalityTraitCheckboxes = Array.from(
+  document.querySelectorAll(".personality-trait")
+);
+const personalityPrefSliders = Array.from(
+  document.querySelectorAll(".personality-pref-slider")
+);
+const personalityPrefValueLabels = Array.from(
+  document.querySelectorAll(".personality-pref-value")
+);
+
+const PERSONALITY_ACTION_KEYS = [
+  "tv_watch",
+  "sleep",
+  "eat_food",
+  "wash_sink",
+  "use_toilet",
+  "social"
+];
+
+const TRAIT_PREF_EFFECTS = {
+  "愛玩": { tv_watch: 0.4, social: 0.2 },
+  "宅": { tv_watch: 0.3, sleep: 0.3, social: -0.4 },
+  "愛社交": { social: 0.7 },
+  "內向": { social: -0.7, tv_watch: 0.2, sleep: 0.2 },
+  "貪吃": { eat_food: 0.7 },
+  "愛乾淨": { wash_sink: 0.7, use_toilet: 0.3 },
+  "工作狂": { tv_watch: -0.4, social: -0.4, sleep: -0.2 },
+  "愛睡覺": { sleep: 0.7 },
+  "邋遢": { wash_sink: -0.7, use_toilet: -0.3 }
+};
 
 /* ================= UI 行為 ================= */
 
@@ -257,6 +288,166 @@ function initButtons() {
       moodAutoBtn.addEventListener("click", () => {
         simNeeds.clearMood();
       });
+    }
+
+    // 性格面板：從 simNeeds.personality 讀取並寫回
+    function computeTraitBasedSliderValues(selectedTraits) {
+      const result = {};
+      PERSONALITY_ACTION_KEYS.forEach(action => {
+        result[action] = 1;
+      });
+      if (Array.isArray(selectedTraits)) {
+        selectedTraits.forEach(trait => {
+          const effects = TRAIT_PREF_EFFECTS[trait];
+          if (!effects) return;
+          Object.keys(effects).forEach(action => {
+            if (!Object.prototype.hasOwnProperty.call(result, action)) return;
+            const delta = effects[action];
+            if (typeof delta === "number" && Number.isFinite(delta)) {
+              result[action] += delta;
+            }
+          });
+        });
+      }
+      PERSONALITY_ACTION_KEYS.forEach(action => {
+        let v = result[action];
+        if (typeof v !== "number" || !Number.isFinite(v)) v = 1;
+        if (v < 0) v = 0;
+        if (v > 2) v = 2;
+        result[action] = v;
+      });
+      return result;
+    }
+
+    function applySliderValuesFromObject(values) {
+      if (!values) return;
+      personalityPrefSliders.forEach(slider => {
+        const action = slider.dataset.action;
+        if (!action) return;
+        let v = values[action];
+        if (typeof v !== "number" || !Number.isFinite(v)) v = 1;
+        if (v < 0) v = 0;
+        if (v > 2) v = 2;
+        slider.value = String(v);
+        const label = personalityPrefValueLabels.find(
+          span => span.dataset.action === action
+        );
+        if (label) {
+          label.textContent = v.toFixed(2);
+        }
+      });
+    }
+
+    function applySlidersToSimNeeds() {
+      if (!simNeeds.setPersonalityInteractionPreference) return;
+      const prefs = {};
+      personalityPrefSliders.forEach(slider => {
+        const action = slider.dataset.action;
+        if (!action) return;
+        const sliderVal = Number(slider.value);
+        if (!Number.isFinite(sliderVal)) return;
+        const internal = (sliderVal - 1) * 2; // [0,2] -> [-2,2]，1 為中立
+        prefs[action] = internal;
+      });
+      simNeeds.setPersonalityInteractionPreference(prefs);
+    }
+
+    function syncPersonalityPanel() {
+      if (!personalityPanel || !simNeeds.getPersonality) return;
+      const p = simNeeds.getPersonality();
+      if (!p) return;
+
+      if (Array.isArray(p.traits)) {
+        const traitSet = new Set(p.traits.map(String));
+        personalityTraitCheckboxes.forEach(cb => {
+          cb.checked = traitSet.has(cb.value);
+        });
+      }
+
+      const selectedTraits = Array.isArray(p.traits)
+        ? p.traits.map(String)
+        : [];
+
+      let hasNonZeroPref = false;
+      const valuesFromPersonality = {};
+
+      if (p.interactionPreference) {
+        personalityPrefSliders.forEach(slider => {
+          const action = slider.dataset.action;
+          if (!action) return;
+          const internal = p.interactionPreference[action];
+          if (typeof internal === "number" && internal !== 0) {
+            let sliderVal = 1 + internal / 2;
+            if (!Number.isFinite(sliderVal)) sliderVal = 1;
+            if (sliderVal < 0) sliderVal = 0;
+            if (sliderVal > 2) sliderVal = 2;
+            valuesFromPersonality[action] = sliderVal;
+            hasNonZeroPref = true;
+          }
+        });
+      }
+
+      let finalValues;
+      if (hasNonZeroPref) {
+        finalValues = {};
+        PERSONALITY_ACTION_KEYS.forEach(action => {
+          if (
+            Object.prototype.hasOwnProperty.call(valuesFromPersonality, action)
+          ) {
+            finalValues[action] = valuesFromPersonality[action];
+          } else {
+            finalValues[action] = 1;
+          }
+        });
+      } else {
+        finalValues = computeTraitBasedSliderValues(selectedTraits);
+      }
+
+      applySliderValuesFromObject(finalValues);
+    }
+
+    if (personalityPanel) {
+      personalityTraitCheckboxes.forEach(cb => {
+        cb.addEventListener("change", () => {
+          const selected = personalityTraitCheckboxes
+            .filter(x => x.checked)
+            .map(x => x.value);
+          if (simNeeds.setPersonalityTraits) {
+            simNeeds.setPersonalityTraits(selected);
+          }
+          const values = computeTraitBasedSliderValues(selected);
+          applySliderValuesFromObject(values);
+          applySlidersToSimNeeds();
+        });
+      });
+
+      personalityPrefSliders.forEach(slider => {
+        const action = slider.dataset.action;
+        const label = personalityPrefValueLabels.find(
+          span => span.dataset.action === action
+        );
+        slider.addEventListener("input", () => {
+          const v = Number(slider.value);
+          if (label) {
+            label.textContent = Number.isFinite(v) ? v.toFixed(2) : "1.00";
+          }
+        });
+        slider.addEventListener("change", () => {
+          applySlidersToSimNeeds();
+        });
+      });
+
+      // 提供給 live-mode.js 點擊小人時呼叫
+      window.togglePersonalityPanelFromSimClick = () => {
+        if (!personalityPanel) return;
+        const willShow = !personalityPanel.classList.contains("visible");
+        if (willShow) {
+          syncPersonalityPanel();
+          personalityPanel.classList.add("visible");
+        } else {
+          personalityPanel.classList.remove("visible");
+        }
+      };
     }
   }
 }

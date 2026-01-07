@@ -38,6 +38,32 @@ let needsTickEnabled = true;
 let moodAuto = "开心";
 let moodOverride = null;
 
+// 簡單性格與喜好系統
+// traits: ["愛玩","宅","愛社交","內向","貪吃","愛乾淨","工作狂","愛睡覺","邋遢"]
+let personality = {
+  traits: ["愛玩"],
+  // 不同需求在主觀上的重要性權重
+  needBias: {
+    social: 1.0,
+    sleep: 1.0,
+    hunger: 1.0,
+    bladder: 1.0,
+    fun: 1.0,
+    hygiene: 1.0
+  },
+  // 對具體互動的偏好分數：正數喜歡，負數討厭
+  interactionPreference: {
+    tv_watch: 0,
+    sleep: 0,
+    eat_food: 0,
+    wash_sink: 0,
+    use_toilet: 0,
+    social: 0
+  },
+  moodSensitivity: 1.0, // 心情影響行為的強度
+  refusalTendency: 0.0  // 額外拒絕傾向（負數代表更願意配合）
+};
+
 // 每秒基礎衰減速度（大約幾分鐘才會從 100 掉到 0）
 const NEED_DECAY_PER_SEC = {
   social: 0.18,
@@ -432,7 +458,11 @@ function tickNeeds(delta) {
 
   // 互動中的回復
   if (interactionState === "sleep" || interactionState === "sleep_enter") {
-    applyNeedDelta("sleep", (NEED_RECOVERY_PER_SEC.sleep || 0) * delta);
+    let sleepRate = NEED_RECOVERY_PER_SEC.sleep || 0;
+    if (isSleepingWithLightOn()) {
+      sleepRate *= 0.5;
+    }
+    applyNeedDelta("sleep", sleepRate * delta);
   }
   if (interactionState === "eat_food") {
     applyNeedDelta("hunger", (NEED_RECOVERY_PER_SEC.hunger || 0) * delta);
@@ -453,6 +483,33 @@ function tickNeeds(delta) {
 
   updateMoodFromNeeds();
   updateNeedsUI();
+}
+
+function isSleepingWithLightOn() {
+  if (!furnitures || !furnitures.length) return false;
+  if (interactionState !== "sleep" && interactionState !== "sleep_enter") return false;
+
+  ensureCharacter();
+  if (!character) return false;
+
+  const refPos = character.position;
+  const maxDistSq = 16; // 4 格左右範圍內
+
+  for (let i = 0; i < furnitures.length; i++) {
+    const f = furnitures[i];
+    const t = f.userData && f.userData.type;
+    if (t !== "ceilingLight") continue;
+    const lightOn = f.userData && f.userData.lightOn;
+    if (!lightOn) continue;
+    const dx = f.position.x - refPos.x;
+    const dz = f.position.z - refPos.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 <= maxDistSq) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function getNeedsSnapshot() {
@@ -509,6 +566,41 @@ function clearMoodOverride() {
   updateNeedsUI();
 }
 
+function getPersonalityNeedPriority(key, rawNeedValue) {
+  const v = clampNeedValue(typeof rawNeedValue === "number" ? rawNeedValue : 0);
+  const bias = personality && personality.needBias && typeof personality.needBias[key] === "number"
+    ? personality.needBias[key]
+    : 1.0;
+  // 需求越低越急迫，乘上性格偏好權重
+  return (100 - v) * bias;
+}
+
+function getInteractionPreferenceScore(actionId) {
+  if (!personality || !personality.interactionPreference) return 0;
+  const v = personality.interactionPreference[actionId];
+  return typeof v === "number" ? v : 0;
+}
+
+function getPersonalityAdjustedRefuseChance(baseChance, actionId) {
+  let chance = baseChance;
+  const pref = getInteractionPreferenceScore(actionId);
+  const refusal = personality && typeof personality.refusalTendency === "number"
+    ? personality.refusalTendency
+    : 0;
+
+  // 喜歡的行為：降低拒絕機率；討厭的行為：提高拒絕機率
+  if (pref > 0) {
+    chance *= 1 - Math.min(0.6, pref * 0.15);
+  } else if (pref < 0) {
+    chance = 1 - (1 - chance) * (1 - Math.min(0.6, -pref * 0.15));
+  }
+
+  // 全局性格傾向
+  chance += refusal * 0.15;
+
+  return Math.max(0, Math.min(1, chance));
+}
+
 function setNeedsTickEnabled(enabled) {
   needsTickEnabled = !!enabled;
 }
@@ -543,6 +635,21 @@ function getBedHeadPosition(furniture) {
   const world = local.clone();
   furniture.localToWorld(world);
   return world;
+}
+
+function getSleepHeadWorldPosition(furniture) {
+  const bedHeadWorld = getBedHeadPosition(furniture).clone();
+  const bedCenterWorld = furniture.position.clone();
+  // 從床頭板「沿著床面方向」偏移一小段，讓頭貼著床頭這一側，而不是跑到床尾
+  const toCenterDir = bedCenterWorld.clone().sub(bedHeadWorld);
+  toCenterDir.y = 0;
+  const dist = toCenterDir.length() || 1;
+  toCenterDir.normalize();
+  const pillowOffset = Math.min(0.25, dist * 0.5); // 靠近床頭一點點，類似枕頭厚度
+  const targetHeadWorld = bedHeadWorld.clone().add(toCenterDir.multiplyScalar(pillowOffset));
+  // Y 軸高度只比床頭板略高一點，避免整個身體懸空
+  targetHeadWorld.y = bedHeadWorld.y + 0.05;
+  return targetHeadWorld;
 }
 
 function getInteractionMenuElement() {
@@ -610,13 +717,18 @@ function startFurnitureInteraction(furniture, actionId) {
   const auto = isAutoInteraction;
   isAutoInteraction = false;
 
-  // 心情很差時，有機率甚至必定拒絕玩家點擊的互動
+  // 心情 + 性格 共同決定：是否拒絕玩家點擊的互動
   if (!auto) {
     const moodLabel = getCurrentMoodLabel();
 
-    // 崩潰中：玩家點的互動 100% 拒絕
-    if (moodLabel === "崩溃中") {
-      showMoodToast("我不想做……（我現在崩潰中）");
+    let baseRefuse = 0;
+    if (moodLabel === "崩溃中") baseRefuse = 1.0;
+    else if (moodLabel === "不舒服") baseRefuse = 0.4;
+
+    const finalRefuseChance = getPersonalityAdjustedRefuseChance(baseRefuse, actionId);
+
+    if (finalRefuseChance >= 1) {
+      showMoodToast("我現在完全不想做這件事……");
       pendingInteraction = null;
       hasMoveTarget = false;
       pathCells = null;
@@ -625,18 +737,21 @@ function startFurnitureInteraction(furniture, actionId) {
       return;
     }
 
-    // 不舒服：有一定機率拒絕
-    if (moodLabel === "不舒服") {
-      const refuseChance = 0.4;
-      if (Math.random() < refuseChance) {
+    if (finalRefuseChance > 0 && Math.random() < finalRefuseChance) {
+      const pref = getInteractionPreferenceScore(actionId);
+      if (pref < 0) {
+        showMoodToast("這種事我真的不太喜歡……");
+      } else if (pref > 0) {
+        showMoodToast("本來還想做點別的……");
+      } else {
         showMoodToast("我不太想做……");
-        pendingInteraction = null;
-        hasMoveTarget = false;
-        pathCells = null;
-        pathIndex = 0;
-        if (moveMarker) moveMarker.visible = false;
-        return;
       }
+      pendingInteraction = null;
+      hasMoveTarget = false;
+      pathCells = null;
+      pathIndex = 0;
+      if (moveMarker) moveMarker.visible = false;
+      return;
     }
   }
 
@@ -747,10 +862,21 @@ function findFurnitureForNeed(needKey) {
 }
 
 function maybeAutoSatisfyCriticalNeed() {
-  const info = getLowestNeedInfo();
-  if (!info || typeof info.value !== "number") return;
+  // 根據性格偏好，計算「主觀緊急度」最高的需求
+  let bestKey = null;
+  let bestScore = 0;
+  NEED_KEYS.forEach(key => {
+    const raw = typeof needs[key] === "number" ? needs[key] : 0;
+    const score = getPersonalityNeedPriority(key, raw);
+    if (score > bestScore) {
+      bestScore = score;
+      bestKey = key;
+    }
+  });
+  if (!bestKey) return;
 
-  const value = clampNeedValue(info.value);
+  const rawValue = typeof needs[bestKey] === "number" ? needs[bestKey] : 0;
+  const value = clampNeedValue(rawValue);
   const CRITICAL = 20;
   if (value > CRITICAL) return;
 
@@ -762,12 +888,12 @@ function maybeAutoSatisfyCriticalNeed() {
   // 已經在對應需求的互動中，就不要再打斷
   if (interactionState) {
     if (
-      (info.key === "sleep" && (interactionState === "sleep" || interactionState === "sleep_enter")) ||
-      (info.key === "hunger" && interactionState === "eat_food") ||
-      (info.key === "bladder" && interactionState === "toilet_use") ||
-      (info.key === "fun" &&
+      (bestKey === "sleep" && (interactionState === "sleep" || interactionState === "sleep_enter")) ||
+      (bestKey === "hunger" && interactionState === "eat_food") ||
+      (bestKey === "bladder" && interactionState === "toilet_use") ||
+      (bestKey === "fun" &&
         (interactionState === "tv_watch" || interactionState === "sofa_sit" || interactionState === "pillow_fight")) ||
-      (info.key === "hygiene" && interactionState === "sink_wash")
+      (bestKey === "hygiene" && interactionState === "sink_wash")
     ) {
       return;
     }
@@ -776,7 +902,7 @@ function maybeAutoSatisfyCriticalNeed() {
   ensureCharacter();
   if (!character) return;
 
-  const target = findFurnitureForNeed(info.key);
+  const target = findFurnitureForNeed(bestKey);
   if (!target) return;
 
   // 如果當前已經在朝同一個目標移動，就不重複設置
@@ -822,6 +948,33 @@ function enterSleepPose(furniture, furnRot) {
   const baseBodyY = character.userData && character.userData.baseBodyY;
   const baseHeadY = character.userData && character.userData.baseHeadY;
 
+  // === 建立床的方向：從床頭板指向床尾（可躺的淺藍床墊方向） ===
+  const bedHeadWorld = getBedHeadPosition(furniture).clone();
+  const bedCenterWorld = furniture.position.clone();
+
+  // 從床頭往床中心 / 床尾的方向，作為「頭 -> 腳」方向
+  const bedForward = bedCenterWorld.clone().sub(bedHeadWorld);
+  bedForward.y = 0;
+  if (bedForward.lengthSq() === 0) {
+    bedForward.set(0, 0, 1);
+  } else {
+    bedForward.normalize();
+  }
+
+  const upWorld = new THREE.Vector3(0, 1, 0);
+  // uWorld：從角色原點指向頭部的方向（朝床頭）
+  const uWorld = bedForward.clone().negate();
+  const rWorld = upWorld.clone().cross(uWorld).normalize();
+  if (rWorld.lengthSq() === 0) {
+    // 非正常情況，隨便取一個水平方向
+    rWorld.set(1, 0, 0);
+  }
+  const fWorld = upWorld.clone(); // 角色面朝上方（仰躺）
+
+  const rotMatrix = new THREE.Matrix4();
+  rotMatrix.makeBasis(rWorld, uWorld, fWorld);
+  const euler = new THREE.Euler().setFromRotationMatrix(rotMatrix, "XYZ");
+
   // 角色頭部在本地座標中的初始位置（站立姿勢）
   let localHead = new THREE.Vector3(0, typeof baseHeadY === "number" ? baseHeadY : 1.45, 0.02);
   if (head) {
@@ -831,23 +984,75 @@ function enterSleepPose(furniture, furnRot) {
     }
   }
 
-  // 最終朝向：指向床頭方向
-  const yaw = getBedHeadYaw(furniture);
-  const pitch = Math.PI / 2; // 仰躺
-  const euler = new THREE.Euler(pitch, yaw, 0, "XYZ");
-
   // 將頭部本地偏移套用躺下後的旋轉，得到從角色原點到頭部的世界方向
   const rotatedHeadOffset = localHead.clone();
   rotatedHeadOffset.applyEuler(euler);
 
-  // 目標頭部世界位置：床頭板附近稍微抬高一點
-  const targetHeadWorld = getBedHeadPosition(furniture).clone();
-  targetHeadWorld.y += 0.15;
-
-  // 反推角色原點的位置，使得頭部剛好落在床頭位置
+  // === 讓頭精確落在床頭側的目標點上（床頭 + 一點點往床墊方向） ===
+  const targetHeadWorld = getSleepHeadWorldPosition(furniture);
   const characterWorldPos = targetHeadWorld.clone().sub(rotatedHeadOffset);
+
   character.position.copy(characterWorldPos);
   character.rotation.copy(euler);
+
+  if (head && typeof head.getWorldPosition === "function") {
+    // 第一步：平移整個角色，讓頭的世界座標精確對齊 sleepHeadTarget。
+    const target = targetHeadWorld.clone();
+    const current = head.getWorldPosition(new THREE.Vector3());
+    const delta = target.clone().sub(current);
+    character.position.add(delta);
+
+    // 第二步：檢查身體是否在「床頭板外側」而不是床墊這一側，如果是就整體翻轉 180 度。
+    let flipped = false;
+    const bedHeadWorld = getBedHeadPosition(furniture).clone();
+    const bedCenterWorld = furniture.position.clone();
+    const bedForward = bedCenterWorld.clone().sub(bedHeadWorld);
+    bedForward.y = 0;
+    if (bedForward.lengthSq() > 0) {
+      bedForward.normalize();
+
+      const headWorldAfterAlign = head.getWorldPosition(new THREE.Vector3());
+      const vHead = headWorldAfterAlign.clone().sub(bedHeadWorld);
+      const bodyRef =
+        body && typeof body.getWorldPosition === "function"
+          ? body.getWorldPosition(new THREE.Vector3())
+          : character.position.clone();
+      const vBody = bodyRef.clone().sub(bedHeadWorld);
+
+      const projHead = vHead.dot(bedForward);
+      const projBody = vBody.dot(bedForward);
+
+      const bedSpan = bedCenterWorld.clone().sub(bedHeadWorld);
+      bedSpan.y = 0;
+      const bedLen = bedSpan.length() || 1;
+
+      // 頭已經在床墊方向 (projHead >= 0)，但身體投影在床頭板外側 (projBody < 0)，說明整個人翻到了床外
+      if (projHead >= 0 && projHead <= bedLen * 1.2 && projBody < -0.05) {
+        const pivot = headWorldAfterAlign.clone();
+        const axisY = new THREE.Vector3(0, 1, 0);
+
+        // 以頭為中心，繞世界 Y 軸旋轉 180 度，把身體從床頭外側翻到床墊這一側
+        character.position.sub(pivot);
+        character.position.applyAxisAngle(axisY, Math.PI);
+        character.position.add(pivot);
+
+        character.rotation.y += Math.PI;
+        flipped = true;
+      }
+    }
+
+    const headWorld = head.getWorldPosition(new THREE.Vector3());
+    console.log("sleep pose debug", {
+      bedRotY: furniture.rotation && furniture.rotation.y,
+      bedHeadYaw: getBedHeadYaw(furniture),
+      bedCenter: furniture.position.clone(),
+      bedHead: bedHeadWorld || getBedHeadPosition(furniture).clone(),
+      sleepHeadTarget: targetHeadWorld.clone(),
+      charPos: character.position.clone(),
+      headWorld,
+      flipped
+    });
+  }
 
   if (body && typeof baseBodyY === "number") {
     body.position.y = baseBodyY;
@@ -1284,6 +1489,18 @@ function handleLiveMouseDown(e) {
   updateMouseFromEvent(e);
   raycaster.setFromCamera(mouse, camera);
 
+  // 先檢測是否點到了小人本身，用於打開/關閉性格設定面板
+  ensureCharacter();
+  if (character) {
+    const simHits = raycaster.intersectObject(character, true);
+    if (simHits.length) {
+      if (typeof window !== "undefined" && typeof window.togglePersonalityPanelFromSimClick === "function") {
+        window.togglePersonalityPanelFromSimClick();
+      }
+      return;
+    }
+  }
+
   // 優先檢測家具點擊
   const furnitureHits = raycaster.intersectObjects(furnitures, true);
   if (furnitureHits.length) {
@@ -1482,11 +1699,12 @@ function updateLive(delta) {
       const furn = sleepTarget.furniture;
       const furnRot = sleepTarget.furnRot;
       const yawSit = furnRot;
-      const yawLie = getBedHeadYaw(furn); // 頭朝床頭方向
+      // +Math.PI 與 enterSleepPose 中的最終 yaw 保持一致，讓頭從床尾翻到床頭
+      const yawLie = getBedHeadYaw(furn) + Math.PI;
 
       const centerX = furn.position.x;
       const centerZ = furn.position.z;
-      const headPos = getBedHeadPosition(furn);
+      const headPos = getSleepHeadWorldPosition(furn);
       const dirX = Math.sin(furnRot);
       const dirZ = Math.cos(furnRot);
       const edgeOffset = 0.9;
@@ -1513,10 +1731,10 @@ function updateLive(delta) {
       } else {
         const u = (t - split) / (1 - split);
 
-        // 從床邊坐姿平移到床頭附近並躺下
+        // 從床邊坐姿平移到最終躺下的頭部位置
         character.position.x = edgeX + (headPos.x - edgeX) * u;
         character.position.z = edgeZ + (headPos.z - edgeZ) * u;
-        character.position.y = seatY + (headPos.y + 0.1 - seatY) * u;
+        character.position.y = seatY + (headPos.y - seatY) * u;
 
         const pitch = Math.PI / 2 * u; // 從直立逐漸後仰到躺平
         const yaw = yawSit + (yawLie - yawSit) * u; // 朝向從面向床過渡到床頭
@@ -1540,6 +1758,7 @@ function updateLive(delta) {
       }
       sleepTarget = null;
     }
+    tickNeeds(delta);
     return;
   }
   if (interactionState === "sleep") {
@@ -1557,6 +1776,7 @@ function updateLive(delta) {
     if (rightArm) rightArm.rotation.x = 0;
     if (leftLeg) leftLeg.rotation.x = 0;
     if (rightLeg) rightLeg.rotation.x = 0;
+    tickNeeds(delta);
     return;
   }
 
@@ -1575,6 +1795,7 @@ function updateLive(delta) {
     if (rightArm) rightArm.rotation.x = 0;
     if (leftLeg) leftLeg.rotation.x = -Math.PI * 0.7 * 0.5;
     if (rightLeg) rightLeg.rotation.x = -Math.PI * 0.7 * 0.5;
+    tickNeeds(delta);
     return;
   }
 
@@ -1593,6 +1814,7 @@ function updateLive(delta) {
     if (rightArm) rightArm.rotation.x = 0;
     if (leftLeg) leftLeg.rotation.x = -Math.PI * 0.7 * 0.5;
     if (rightLeg) rightLeg.rotation.x = -Math.PI * 0.7 * 0.5;
+    tickNeeds(delta);
     return;
   }
 
@@ -1619,6 +1841,7 @@ function updateLive(delta) {
       interactionTimer = 0;
       resetCharacterPose();
     }
+    tickNeeds(delta);
     return;
   }
 
@@ -1662,7 +1885,34 @@ if (typeof window !== "undefined") {
     clearMood: clearMoodOverride,
     pause: () => setNeedsTickEnabled(false),
     resume: () => setNeedsTickEnabled(true),
-    enableTick: setNeedsTickEnabled
+    enableTick: setNeedsTickEnabled,
+    // 性格相關：可在控制台調整
+    getPersonality: () => personality,
+    setPersonalityTraits: traits => {
+      if (Array.isArray(traits)) personality.traits = traits.map(String);
+    },
+    setPersonalityNeedBias: bias => {
+      if (!bias || typeof bias !== "object") return;
+      Object.keys(personality.needBias).forEach(key => {
+        if (Object.prototype.hasOwnProperty.call(bias, key)) {
+          const v = Number(bias[key]);
+          if (Number.isFinite(v)) personality.needBias[key] = v;
+        }
+      });
+    },
+    setPersonalityInteractionPreference: prefs => {
+      if (!prefs || typeof prefs !== "object") return;
+      Object.keys(personality.interactionPreference).forEach(key => {
+        if (Object.prototype.hasOwnProperty.call(prefs, key)) {
+          const v = Number(prefs[key]);
+          if (Number.isFinite(v)) personality.interactionPreference[key] = v;
+        }
+      });
+    },
+    setPersonalityRefusalTendency: value => {
+      const v = Number(value);
+      if (Number.isFinite(v)) personality.refusalTendency = v;
+    }
   };
 }
 
