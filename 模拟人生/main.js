@@ -10,7 +10,7 @@ import {
   raycaster,
   mouse,
   snap
-} from "./core.js";
+} from "./core/core.js";
 import {
   floors,
   walls,
@@ -32,7 +32,7 @@ import {
   importLayout,
   saveLayoutSnapshot,
   undoLastLayoutChange
-} from "./layout.js";
+} from "./layout/layout.js";
 import {
   ensureCharacter,
   resetLiveState,
@@ -40,7 +40,7 @@ import {
   handleLiveKeyUp,
   handleLiveMouseDown,
   updateLive
-} from "./live-mode.js";
+} from "./modes/live-mode.js";
 import {
   getBuildMode,
   setBuildMode as setBuildModeState,
@@ -55,8 +55,8 @@ import {
   handleBuildMouseMove,
   handleBuildMouseUp,
   resetBuildInteraction
-} from "./build-mode.js";
-import { initUI, getGameMode } from "./ui.js";
+} from "./modes/build-mode.js";
+import { initUI, getGameMode } from "./ui/ui.js";
 
 /* ================= 初始化 UI ================= */
 

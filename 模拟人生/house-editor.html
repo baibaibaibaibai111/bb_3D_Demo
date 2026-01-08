@@ -240,18 +240,45 @@
     <button class="wall-visibility-button" data-wall-mode="half">半透视</button>
     <button class="wall-visibility-button" data-wall-mode="full">全透视</button>
   </div>
+  <div class="row" id="presetLayoutRow">
+    预设房屋：
+    <button class="preset-layout-button" data-preset="studio">单身公寓</button>
+    <button class="preset-layout-button" data-preset="family">家庭住宅</button>
+    <button class="preset-layout-button" data-preset="workshop">工作室</button>
+  </div>
+  <div class="row" id="furnitureCategoryRow">
+    家具分类：
+    <button class="furniture-category-button" data-category="all">全部</button>
+    <button class="furniture-category-button" data-category="sleep">卧室</button>
+    <button class="furniture-category-button" data-category="surface">桌子</button>
+    <button class="furniture-category-button" data-category="seat">座椅</button>
+    <button class="furniture-category-button" data-category="entertainment">娱乐</button>
+    <button class="furniture-category-button" data-category="kitchen">厨房</button>
+    <button class="furniture-category-button" data-category="bathroom">卫浴</button>
+    <button class="furniture-category-button" data-category="structure">结构</button>
+    <button class="furniture-category-button" data-category="lighting">灯光</button>
+  </div>
+  <div class="row">
+    宠物：
+    <button id="togglePetBtn">隐藏宠物</button>
+  </div>
   <div class="row" id="furniturePanel">
     家具：
-    <button class="furniture-type-button" data-type="bed">床</button>
-    <button class="furniture-type-button" data-type="sofa">沙发</button>
-    <button class="furniture-type-button" data-type="table">桌子</button>
-    <button class="furniture-type-button" data-type="door">门</button>
-    <button class="furniture-type-button" data-type="window">窗</button>
-    <button class="furniture-type-button" data-type="ceilingLight">吊灯</button>
-    <button class="furniture-type-button" data-type="tv">电视机</button>
-    <button class="furniture-type-button" data-type="food">食物</button>
-    <button class="furniture-type-button" data-type="toilet">马桶</button>
-    <button class="furniture-type-button" data-type="sink">洗手池</button>
+    <button class="furniture-type-button" data-type="bed" data-category="sleep">床</button>
+    <button class="furniture-type-button" data-type="sofa" data-category="seat">沙发</button>
+    <button class="furniture-type-button" data-type="table" data-category="surface">桌子</button>
+    <button class="furniture-type-button" data-type="computerDesk" data-category="surface">电脑桌</button>
+    <button class="furniture-type-button" data-type="door" data-category="structure">门</button>
+    <button class="furniture-type-button" data-type="window" data-category="structure">窗</button>
+    <button class="furniture-type-button" data-type="ceilingLight" data-category="lighting">吊灯</button>
+    <button class="furniture-type-button" data-type="tv" data-category="entertainment">电视机</button>
+    <button class="furniture-type-button" data-type="guitar" data-category="entertainment">吉他</button>
+    <button class="furniture-type-button" data-type="food" data-category="kitchen">食物</button>
+    <button class="furniture-type-button" data-type="fridge" data-category="kitchen">冰箱</button>
+    <button class="furniture-type-button" data-type="toilet" data-category="bathroom">马桶</button>
+    <button class="furniture-type-button" data-type="sink" data-category="bathroom">洗手池</button>
+    <button class="furniture-type-button" data-type="shower" data-category="bathroom">淋浴</button>
+    <button class="furniture-type-button" data-type="bathtub" data-category="bathroom">浴缸</button>
     <button id="rotateFurnitureBtn">旋转选中家具</button>
   </div>
 </div>
