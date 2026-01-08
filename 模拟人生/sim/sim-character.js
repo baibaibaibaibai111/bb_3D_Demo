@@ -1,4 +1,93 @@
 import { THREE } from "../core/core.js";
+import { GLTFLoader } from "three/examples/loaders/GLTFLoader.js";
+
+// 女人角色 GLB 模型路徑
+const WOMAN_MODEL_URL = new URL(
+  "../public/models/woman/chisa_wuthering_waves.glb",
+  import.meta.url
+).href;
+
+// 與原始盒子小人身高的相對比例：< 1 會顯得更嬌小一些
+// 先設得比較小一點，避免人物在畫面裡過於巨大
+const WOMAN_HEIGHT_RATIO = 0.1;
+
+// 整體角色在世界中的縮放，進一步控制與地板 / 家具的相對尺寸
+// 再縮小一截，讓人物在世界中顯得不那麼巨大
+const CHARACTER_WORLD_SCALE = 0.02;
+
+let womanModelLoading = false;
+
+function attachWomanModelToCharacter(group, targetHeight) {
+  if (!group || womanModelLoading) return;
+  womanModelLoading = true;
+
+  const loader = new GLTFLoader();
+  loader.load(
+    WOMAN_MODEL_URL,
+    gltf => {
+      womanModelLoading = false;
+      const root = gltf && gltf.scene ? gltf.scene : null;
+      if (!root) {
+        console.warn("[sim] woman GLB loaded but no scene found");
+        return;
+      }
+
+      console.log("[sim] woman gltf.scene", gltf.scene);
+
+      // 設置陰影與基礎材質屬性
+      root.traverse(obj => {
+        if (obj.isMesh) {
+          obj.castShadow = true;
+          obj.receiveShadow = true;
+          const mat = obj.material;
+          if (mat) {
+            // 保守處理：確保不會整體透明
+            if (typeof mat.transparent === "boolean") mat.transparent = false;
+            if (typeof mat.opacity === "number") mat.opacity = 1.0;
+            if (typeof mat.depthWrite === "boolean") mat.depthWrite = true;
+            mat.needsUpdate = true;
+          }
+        }
+      });
+
+      // 根據原始尺寸調整到與簡單小人相同的身高，並讓腳落在 y = 0
+      const box = new THREE.Box3().setFromObject(root);
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      box.getSize(size);
+      box.getCenter(center);
+
+      if (size.y > 0) {
+        const baseTargetHeight =
+          typeof targetHeight === "number" && targetHeight > 0 ? targetHeight : size.y;
+        const finalTargetHeight = baseTargetHeight * WOMAN_HEIGHT_RATIO;
+        const scale = finalTargetHeight / size.y;
+        console.log("[sim] woman scale debug", {
+          sizeY: size.y,
+          baseTargetHeight,
+          finalTargetHeight,
+          scale
+        });
+        root.scale.setScalar(scale);
+
+        // 重新計算腳到底部位置，使其落在地面
+        const minY = box.min.y * scale;
+        const yOffset = -minY;
+        root.position.set(0, yOffset, 0);
+      } else {
+        root.position.set(0, 0, 0);
+      }
+
+      group.add(root);
+      console.log("[sim] woman model attached to character");
+    },
+    undefined,
+    err => {
+      womanModelLoading = false;
+      console.error("[sim] failed to load woman GLB", err);
+    }
+  );
+}
 
 function createCharacter() {
   const group = new THREE.Group();
@@ -103,6 +192,35 @@ function createCharacter() {
     leftLeg,
     rightLeg
   };
+
+  // 以當前簡單小人模型的高度作為目標身高，供後續 GLB 模型縮放使用
+  const baseBox = new THREE.Box3().setFromObject(group);
+  const baseSize = new THREE.Vector3();
+  baseBox.getSize(baseSize);
+  const baseHeight = baseSize.y || 1.7;
+  console.log("[sim] base character height", baseHeight, "box", baseBox);
+
+  // 隱藏簡單幾何體，只保留作為姿勢與動畫的「骨架」，
+  // 真正顯示由 GLB 女角色負責。
+  [
+    torso,
+    pelvis,
+    head,
+    leftArm,
+    rightArm,
+    leftLeg,
+    rightLeg,
+    leftFoot,
+    rightFoot
+  ].forEach(part => {
+    if (part) part.visible = false;
+  });
+
+  // 異步掛載女人 GLB 模型作為本體小人外觀
+  attachWomanModelToCharacter(group, baseHeight);
+
+  // 進一步縮放整個角色在世界中的尺寸
+  group.scale.setScalar(CHARACTER_WORLD_SCALE);
 
   return group;
 }
