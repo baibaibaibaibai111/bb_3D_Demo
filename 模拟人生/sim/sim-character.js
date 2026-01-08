@@ -17,6 +17,103 @@ const CHARACTER_WORLD_SCALE = 0.02;
 
 let womanModelLoading = false;
 
+function buildWomanRigFromSkeleton(skeleton) {
+  if (!skeleton || !Array.isArray(skeleton.bones)) return null;
+  const bones = skeleton.bones;
+
+  const findBone = names => {
+    const lowerNames = names.map(n => String(n).toLowerCase());
+    for (let i = 0; i < bones.length; i++) {
+      const b = bones[i];
+      const nm = (b.name || "").toLowerCase();
+      if (!nm) continue;
+      for (let j = 0; j < lowerNames.length; j++) {
+        if (nm.includes(lowerNames[j])) {
+          return b;
+        }
+      }
+    }
+    return null;
+  };
+
+  const rig = {
+    hips: findBone(["hips", "pelvis", "root"]),
+    spine: findBone(["bip001spine2", "bip001spine1", "bip001spine", "spine2", "spine1", "spine", "chest", "upperchest"]),
+    head: findBone(["bip001head", "head"]),
+    leftUpperArm: findBone([
+      "bip001lupperarm",
+      "bip001lclavicle",
+      "leftarm",
+      "l_arm",
+      "arm_l",
+      "upperarm_l",
+      "clavicle_l",
+      "l_shoulder"
+    ]),
+    rightUpperArm: findBone([
+      "bip001rupperarm",
+      "bip001rclavicle",
+      "rightarm",
+      "r_arm",
+      "arm_r",
+      "upperarm_r",
+      "clavicle_r",
+      "r_shoulder"
+    ]),
+    leftUpperLeg: findBone([
+      "bip001lthigh",
+      "leftupleg",
+      "leftthigh",
+      "thigh_l",
+      "upperleg_l",
+      "l_thigh"
+    ]),
+    rightUpperLeg: findBone([
+      "bip001rthigh",
+      "rightupleg",
+      "rightthigh",
+      "thigh_r",
+      "upperleg_r",
+      "r_thigh"
+    ]),
+    leftLowerLeg: findBone([
+      "bip001lcalf",
+      "leftleg",
+      "l_calf",
+      "calf_l",
+      "shin_l"
+    ]),
+    rightLowerLeg: findBone([
+      "bip001rcalf",
+      "rightleg",
+      "r_calf",
+      "calf_r",
+      "shin_r"
+    ])
+  };
+
+  // 保存每個重要骨骼的初始旋轉，方便動畫在其基礎上做相對偏移
+  const addBase = key => {
+    if (rig[key] && rig[key].rotation) {
+      rig[key + "BaseRot"] = rig[key].rotation.clone();
+    }
+  };
+
+  [
+    "hips",
+    "spine",
+    "head",
+    "leftUpperArm",
+    "rightUpperArm",
+    "leftUpperLeg",
+    "rightUpperLeg",
+    "leftLowerLeg",
+    "rightLowerLeg"
+  ].forEach(addBase);
+
+  return rig;
+}
+
 function attachWomanModelToCharacter(group, targetHeight) {
   if (!group || womanModelLoading) return;
   womanModelLoading = true;
@@ -79,6 +176,27 @@ function attachWomanModelToCharacter(group, targetHeight) {
       }
 
       group.add(root);
+
+      // 嘗試從 GLB 中獲取骨骼，構建一個簡單的女性骨架映射，供動畫系統使用
+      let skinned = null;
+      root.traverse(obj => {
+        if (!skinned && obj.isSkinnedMesh && obj.skeleton) {
+          skinned = obj;
+        }
+      });
+
+      if (skinned && skinned.skeleton) {
+        console.log(
+          "[sim] woman bones",
+          skinned.skeleton.bones.map(b => b && b.name)
+        );
+        const rig = buildWomanRigFromSkeleton(skinned.skeleton);
+        if (rig) {
+          group.userData.womanRig = rig;
+          console.log("[sim] woman rig", rig);
+        }
+      }
+
       console.log("[sim] woman model attached to character");
     },
     undefined,

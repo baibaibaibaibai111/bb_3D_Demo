@@ -1211,6 +1211,9 @@ function updateLive(delta) {
     petMixer.update(delta);
   }
 
+  const moveSpeed = 3 * moodFactor;
+  const isRunning = moveSpeed > 3.2; // 之後若有衝刺/跑步模式，可在此調整條件
+
   const animResult = updateCharacterAnimation(
     character,
     delta,
@@ -1224,7 +1227,8 @@ function updateLive(delta) {
     getSleepHeadWorldPosition,
     enterSleepPose,
     resetCharacterPose,
-    updateNeedsAndMood
+    updateNeedsAndMood,
+    isRunning
   );
 
   interactionState = animResult.interactionState;
