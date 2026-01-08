@@ -60,6 +60,14 @@ let pet = null;
 let petLoading = false;
 let petEnabled = true;
 
+let petMixer = null;
+let petAnimActions = {
+  idle: null,
+  run: null,
+  sleep: null
+};
+let currentPetActionName = null;
+
 let moodToastElement = null;
 let isAutoInteraction = false;
 
@@ -70,6 +78,50 @@ const FREE_WILL_IDLE_BASE_INTERVAL = 8; // 基礎間隔（秒）
 const FREE_WILL_IDLE_RANDOM_INTERVAL = 6; // 額外隨機抖動（秒）
 
 let petIdleTimer = 0;
+let petLongIdleTimer = 0;
+
+// 豹子專用貼圖：當 GLTFLoader 未能解析 SpecGloss 擴展、導致 material.map 為 null 時，
+// 用這些貼圖補上顏色與法線，不覆蓋已存在的貼圖。
+let petDiffuseMap = null;
+let petNormalMap = null;
+let petSpecGlossMap = null;
+let petTextureLoader = null;
+
+function ensurePetTexturesLoaded() {
+  if (!petTextureLoader) {
+    petTextureLoader = new THREE.TextureLoader();
+  }
+
+  const baseUrl = new URL(
+    "../public/models/leopard/textures/",
+    import.meta.url
+  ).href;
+
+  if (!petDiffuseMap) {
+    petDiffuseMap = petTextureLoader.load(
+      baseUrl + "CH_NPC_MOB_SLeopard_A01_MI_BYN_diffuse.png"
+    );
+    if (petDiffuseMap.colorSpace !== undefined && THREE.SRGBColorSpace) {
+      petDiffuseMap.colorSpace = THREE.SRGBColorSpace;
+    }
+    // glTF 使用的貼圖約定 flipY = false
+    petDiffuseMap.flipY = false;
+  }
+
+  if (!petNormalMap) {
+    petNormalMap = petTextureLoader.load(
+      baseUrl + "CH_NPC_MOB_SLeopard_A01_MI_BYN_normal.png"
+    );
+    petNormalMap.flipY = false;
+  }
+
+  if (!petSpecGlossMap) {
+    petSpecGlossMap = petTextureLoader.load(
+      baseUrl + "CH_NPC_MOB_SLeopard_A01_MI_BYN_specularGlossiness.jpeg"
+    );
+    petSpecGlossMap.flipY = false;
+  }
+}
 
 function resetFreeWillTimer() {
   freeWillTimer = 0;
@@ -84,13 +136,134 @@ function setPetEnabled(enabled) {
   }
 }
 
+function initPetAnimations(gltf) {
+  if (!gltf || !Array.isArray(gltf.animations) || !gltf.animations.length || !pet) {
+    return;
+  }
+
+  const clips = gltf.animations;
+  console.log("[pet] available animations:", clips.map(clip => clip.name));
+
+  petMixer = new THREE.AnimationMixer(pet);
+
+  function pickClip(preferredNames, fallbackIndex) {
+    const lowerPreferred = preferredNames.map(name => String(name).toLowerCase());
+    for (let i = 0; i < clips.length; i++) {
+      const clip = clips[i];
+      const nm = (clip.name || "").toLowerCase();
+      if (!nm) continue;
+      for (let j = 0; j < lowerPreferred.length; j++) {
+        if (nm.includes(lowerPreferred[j])) {
+          return clip;
+        }
+      }
+    }
+    if (typeof fallbackIndex === "number" && clips[fallbackIndex]) {
+      return clips[fallbackIndex];
+    }
+    return clips[0];
+  }
+
+  const nameMap = {};
+  clips.forEach(clip => {
+    const key = (clip.name || "").toLowerCase();
+    if (key) {
+      nameMap[key] = clip;
+    }
+  });
+
+  // 針對當前豹子模型明確指定：
+  // idle  -> LeopardALL_Idle
+  // run   -> LeopardALL_Run（退化到 Walk）
+  // sleep -> LeopardALL_Graze（睡在床邊時使用）
+  // sit   -> LeopardALL_Sick（長時間發呆時，坐/趴在小人旁邊）
+  const idleClip =
+    nameMap["leopardall_idle"] || pickClip(["idle", "stand", "breath", "rest"], 0);
+  const runClip =
+    nameMap["leopardall_run"] ||
+    nameMap["leopardall_walk"] ||
+    pickClip(["run", "sprint", "walk", "jog"], 0);
+  const sleepClip =
+    nameMap["leopardall_graze"] ||
+    nameMap["leopardall_idle"] ||
+    pickClip(["idle", "rest"], 0);
+  const sitClip =
+    nameMap["leopardall_sick"] ||
+    nameMap["leopardall_graze"] ||
+    idleClip;
+
+  petAnimActions.idle = petMixer.clipAction(idleClip);
+  petAnimActions.run = petMixer.clipAction(runClip);
+  petAnimActions.sleep = petMixer.clipAction(sleepClip);
+  petAnimActions.sit = petMixer.clipAction(sitClip);
+
+  Object.keys(petAnimActions).forEach(key => {
+    const action = petAnimActions[key];
+    if (!action) return;
+    action.loop = THREE.LoopRepeat;
+    action.clampWhenFinished = false;
+    action.enabled = false;
+  });
+
+  // 預設使用待機動畫
+  playPetAction("idle");
+}
+
+function playPetAction(name) {
+  if (!petMixer || !petAnimActions) return;
+  const next = petAnimActions[name];
+  if (!next) return;
+  if (currentPetActionName === name) return;
+
+  let timeScale = 1;
+  if (name === "run") timeScale = 1.3;
+  if (name === "sleep") timeScale = 0.6;
+  if (name === "sit") timeScale = 0.7;
+  next.timeScale = timeScale;
+
+  const prev = currentPetActionName ? petAnimActions[currentPetActionName] : null;
+
+  if (prev && prev !== next) {
+    prev.enabled = true;
+    next.enabled = true;
+    next.reset();
+    next.play();
+    prev.crossFadeTo(next, 0.25, false);
+  } else {
+    next.enabled = true;
+    next.reset();
+    next.play();
+  }
+
+  next.setEffectiveWeight(1);
+
+  currentPetActionName = name;
+}
+
+function updatePetAnimationByState(isMoving, isSleeping) {
+  if (!petMixer) return;
+  if (isSleeping) {
+    playPetAction("sleep");
+  } else if (isMoving) {
+    playPetAction("run");
+  } else if (petLongIdleTimer > 6) {
+    // 長時間發呆：坐在小人身旁
+    playPetAction("sit");
+  } else {
+    playPetAction("idle");
+  }
+}
+
 function loadPetModel() {
   if (pet || petLoading || !petEnabled) return;
   petLoading = true;
 
   const loader = new GLTFLoader();
-  const url = new URL("../public/models/leopard/scene.gltf", import.meta.url).href;
-  console.log("[pet] loading leopard GLTF from", url);
+  const url = new URL(
+    "../public/models/leopard/animated_stylized_leopard__3d_animal_model.glb",
+    import.meta.url
+  ).href;
+  console.log("[pet] loading leopard GLB from", url);
 
   loader.load(
     url,
@@ -102,10 +275,57 @@ function loadPetModel() {
         return;
       }
 
+      // 調試：檢查場景與每個 mesh 的材質貼圖是否存在
+      console.log("[pet] gltf.scene", gltf.scene);
+
       leopard.traverse(obj => {
         if (obj.isMesh) {
+          console.log("[pet] mesh material", obj.name, obj.material);
           obj.castShadow = true;
           obj.receiveShadow = true;
+
+          const applyMat = mat => {
+            if (!mat) return;
+            // 若 GLTFLoader 未給此材質設置 diffuse map（map 為 null），
+            // 則使用豹子原始貼圖補上；已存在的貼圖一律不覆蓋。
+            if (!mat.map) {
+              ensurePetTexturesLoaded();
+              if (petDiffuseMap) {
+                mat.map = petDiffuseMap;
+              }
+            }
+            if (!mat.normalMap && petNormalMap) {
+              ensurePetTexturesLoaded();
+              mat.normalMap = petNormalMap;
+            }
+
+            // 基於目前 GLTFLoader 未能解析 SpecGloss 擴展的情況，
+            // 適度調整金屬度/粗糙度，避免整體過黑。
+            if (typeof mat.metalness === "number") {
+              mat.metalness = 0.0;
+            }
+            if (typeof mat.roughness === "number") {
+              mat.roughness = 0.7;
+            }
+
+            // 僅修正渲染方式，不覆蓋 glTF 其它屬性
+            mat.side = THREE.DoubleSide;
+            if (mat.alphaMap) {
+              mat.alphaTest = 0.5;
+            } else {
+              // 沒有單獨 alphaMap 時，關閉整體透明，避免模型發虛
+              if (typeof mat.transparent === "boolean") mat.transparent = false;
+              if (typeof mat.opacity === "number") mat.opacity = 1.0;
+              if (typeof mat.depthWrite === "boolean") mat.depthWrite = true;
+            }
+            mat.needsUpdate = true;
+          };
+
+          if (Array.isArray(obj.material)) {
+            obj.material.forEach(m => applyMat(m));
+          } else if (obj.material) {
+            applyMat(obj.material);
+          }
         }
       });
 
@@ -126,6 +346,8 @@ function loadPetModel() {
       scene.add(leopard);
       pet = leopard;
       console.log("[pet] leopard model added to scene");
+
+      initPetAnimations(gltf);
     },
     undefined,
     error => {
@@ -147,6 +369,8 @@ function updatePetFollow(delta, movedThisFrame) {
     moveBackward ||
     moveLeft ||
     moveRight;
+
+  updatePetAnimationByState(isMoving, isSleeping);
 
   let targetX = character.position.x - 0.8;
   let targetZ = character.position.z - 0.6;
@@ -171,20 +395,25 @@ function updatePetFollow(delta, movedThisFrame) {
     targetZ = furn.position.z + worldOffsetZ;
     speed = 2;
   } else if (!isMoving && !interactionState) {
+    // 小人站立發呆：短時間內原地小幅晃動，久了之後坐在旁邊
     petIdleTimer += delta;
-    const radius = 0.6;
-    const angularSpeed = 1.2;
-    const angle = petIdleTimer * angularSpeed;
-    const centerX = character.position.x;
-    const centerZ = character.position.z;
-    targetX = centerX + Math.cos(angle) * radius;
-    targetZ = centerZ + Math.sin(angle) * radius;
-    speed = 1.2;
+    petLongIdleTimer += delta;
+
+    const baseDist = petLongIdleTimer > 6 ? 0.4 : 0.8;
+    const wobbleAmp = 0.05;
+    const wobbleSpeed = 1.5;
+    const wobble = Math.sin(petIdleTimer * wobbleSpeed) * wobbleAmp;
+
+    targetX = character.position.x - baseDist;
+    targetZ = character.position.z - 0.6 + wobble;
+    speed = petLongIdleTimer > 6 ? 1.5 : 1.0;
   } else if (isMoving) {
     petIdleTimer = 0;
+    petLongIdleTimer = 0;
     speed = 4;
   } else {
     petIdleTimer = 0;
+    petLongIdleTimer = 0;
   }
 
   const dx = targetX - pet.position.x;
@@ -977,6 +1206,10 @@ function updateLive(delta) {
   }
 
   updatePetFollow(delta, movedThisFrame);
+
+  if (petMixer) {
+    petMixer.update(delta);
+  }
 
   const animResult = updateCharacterAnimation(
     character,

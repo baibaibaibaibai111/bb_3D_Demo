@@ -12,6 +12,14 @@ camera.position.set(8, 8, 8);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
+// 配置輸出色彩空間與色調映射，讓 PBR glTF 模型（如豹子）顏色更接近原站預覽
+if (renderer.outputColorSpace !== undefined && THREE.SRGBColorSpace) {
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+}
+if (THREE.ACESFilmicToneMapping !== undefined) {
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+}
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
