@@ -136,4 +136,47 @@ function showInteractionMenuForFurniture(furniture, clientX, clientY, onInteract
   menu.style.display = "block";
 }
 
-export { getInteractionMenuElement, hideInteractionMenu, showInteractionMenuForFurniture };
+function showInteractionMenuForPet(pet, clientX, clientY, onInteraction) {
+  const menu = getInteractionMenuElement();
+  menu.innerHTML = "";
+
+  const options = [
+    { id: "pet_headpat", label: "摸摸头" },
+    { id: "pet_feed", label: "投喂" },
+    { id: "pet_hug", label: "拥抱" },
+    { id: "pet_ride", label: "骑乘" }
+  ];
+
+  options.forEach(opt => {
+    const btn = document.createElement("button");
+    btn.textContent = opt.label;
+    btn.style.display = "block";
+    btn.style.width = "100%";
+    btn.style.margin = "2px 0";
+    btn.style.padding = "2px 4px";
+    btn.style.fontSize = "12px";
+    btn.style.cursor = "pointer";
+    btn.style.border = "1px solid #555";
+    btn.style.borderRadius = "3px";
+    btn.style.background = "#333";
+    btn.addEventListener("click", () => {
+      hideInteractionMenu();
+      if (typeof onInteraction === "function") {
+        onInteraction(pet, opt.id);
+      }
+    });
+    menu.appendChild(btn);
+  });
+
+  const padding = 4;
+  menu.style.left = `${clientX + padding}px`;
+  menu.style.top = `${clientY + padding}px`;
+  menu.style.display = "block";
+}
+
+export {
+  getInteractionMenuElement,
+  hideInteractionMenu,
+  showInteractionMenuForFurniture,
+  showInteractionMenuForPet
+};

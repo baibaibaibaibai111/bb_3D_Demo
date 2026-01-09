@@ -18,7 +18,7 @@ if (renderer.outputColorSpace !== undefined && THREE.SRGBColorSpace) {
 }
 if (THREE.ACESFilmicToneMapping !== undefined) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
+  renderer.toneMappingExposure = 1.3;
 }
 document.body.appendChild(renderer.domElement);
 
@@ -28,9 +28,9 @@ const clock = new THREE.Clock();
 
 /* ================= 灯光 ================= */
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+scene.add(new THREE.AmbientLight(0xffffff, 0.8));
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.4);
 dirLight.position.set(10, 15, 8);
 dirLight.castShadow = true;
 scene.add(dirLight);

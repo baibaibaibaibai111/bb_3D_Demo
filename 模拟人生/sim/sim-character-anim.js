@@ -121,6 +121,72 @@ function applyWomanPillowFightPose(rig, bounce, armSwing, legSwing) {
   if (rig.rightUpperLeg) rig.rightUpperLeg.rotation.x += l * 0.5;
 }
 
+function applyWomanRidePose(rig, ridePhase, moodFactor) {
+  if (!rig) return;
+  resetWomanRigPose(rig);
+
+  const phase = ridePhase || 0;
+  // 弯腰程度由 forwardLean 控制，前後趴在豹子背上
+  const forwardLeanBase = 0;
+  const forwardLean = forwardLeanBase + 0.1 * moodFactor;
+
+  // 由於這個模型的骨骼局部軸本身有一點傾斜，
+  // 單純繞 Z 軸前後彎會帶出一點左右歪。
+  // 這裡根據 forwardLean 自動加上一小段 X 軸旋轉來「拉正」，
+  // 你只需要調整 forwardLeanBase，不用再手動算抵消角度。
+  const spineSideFromForward = -0.6 * forwardLean;
+  const hipsSideFromForward = -0.4 * forwardLean;
+  const headSideFromForward = -0.2 * forwardLean;
+
+  if (rig.spine) {
+    //胸、上背
+    rig.spine.rotation.z += forwardLean * 1.0;      // 前後趴
+    rig.spine.rotation.x += spineSideFromForward;   // 自動校正左右歪
+  }
+  if (rig.hips) {
+    //骨盆、腰、屁股
+    rig.hips.rotation.z += forwardLean * 0.6;
+    rig.hips.rotation.x += hipsSideFromForward;
+  }
+  if (rig.head) {
+    // 頭也略微前傾，配合整體趴伏姿勢
+    rig.head.rotation.z += forwardLean * 0.25;
+    rig.head.rotation.x += headSideFromForward;
+  }
+
+  const armForward = 0.8;
+  if (rig.leftUpperArm) rig.leftUpperArm.rotation.z -= armForward;
+  if (rig.rightUpperArm) rig.rightUpperArm.rotation.z -= armForward;
+
+  const elbowBend = 1.0;
+  if (rig.leftLowerArm) rig.leftLowerArm.rotation.z -= elbowBend;
+  if (rig.rightLowerArm) rig.rightLowerArm.rotation.z -= elbowBend;
+
+  const thighForward = 0.35;
+  const thighSpread = 0.4; // 大腿左右張開角度，數值越小越內收，越大越外展
+  if (rig.leftUpperLeg) {
+    rig.leftUpperLeg.rotation.z += thighForward;
+    // 大腿沿 X 軸張開：左腿往左側
+    rig.leftUpperLeg.rotation.x -= thighSpread;
+  }
+  if (rig.rightUpperLeg) {
+    rig.rightUpperLeg.rotation.z += thighForward;
+    // 大腿沿 X 軸張開：右腿往右側
+    rig.rightUpperLeg.rotation.x += thighSpread;
+  }
+
+  const kneeBend = 1.1;
+  if (rig.leftLowerLeg) {
+    rig.leftLowerLeg.rotation.z -= kneeBend;
+    // 小腿往身體內側旋轉，貼近豹子腹部
+    rig.leftLowerLeg.rotation.x += 0.001;
+  }
+  if (rig.rightLowerLeg) {
+    rig.rightLowerLeg.rotation.z -= kneeBend;
+    rig.rightLowerLeg.rotation.x -= 0.001;
+  }
+}
+
 function updateCharacterAnimation(
   character,
   delta,
@@ -135,7 +201,8 @@ function updateCharacterAnimation(
   enterSleepPose,
   resetCharacterPose,
   updateNeedsAndMood,
-  isRunning
+  isRunning,
+  isRidingPet
 ) {
   const body = character.userData && character.userData.body;
   const head = character.userData && character.userData.head;
@@ -303,8 +370,8 @@ function updateCharacterAnimation(
   }
 
   if (movedThisFrame) {
-    // 調整走路 / 跑步動畫頻率：跑步稍快於走路，但不至於雙腿成「殘影」
-    const baseFreq = isRunning ? 11 : 7;
+    // 調整走路 / 跑步 / 騎乘動畫頻率：跑步和騎乘稍快於走路
+    const baseFreq = isRunning || isRidingPet ? 11 : 7;
     walkPhase += delta * baseFreq * moodFactor;
   } else {
     walkPhase = Math.max(0, walkPhase - delta * 10);
@@ -333,7 +400,9 @@ function updateCharacterAnimation(
   }
 
   if (womanRig) {
-    if (movedThisFrame || Math.abs(walkPhase) > 0.001) {
+    if (isRidingPet) {
+      applyWomanRidePose(womanRig, walkPhase, moodFactor);
+    } else if (movedThisFrame || Math.abs(walkPhase) > 0.001) {
       applyWomanWalkPose(womanRig, walkPhase, moodFactor, isRunning);
     } else {
       applyWomanIdlePose(womanRig, interactionTimer || 0);

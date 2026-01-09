@@ -1,4 +1,4 @@
-import { THREE, scene, camera, ground, raycaster, mouse, snap } from "../core/core.js";
+import { THREE, scene, camera, ground, raycaster, mouse, snap, controls } from "../core/core.js";
 import { GLTFLoader } from "three/examples/loaders/GLTFLoader.js";
 import { floors, furnitures, findPath, canMoveCharacterTo, scheduleDestroy } from "../layout/layout.js";
 import {
@@ -22,7 +22,11 @@ import {
   findFurnitureForNeedCore,
   startFurnitureInteractionCore
 } from "../sim/sim-interactions.js";
-import { hideInteractionMenu, showInteractionMenuForFurniture } from "../sim/sim-interaction-menu.js";
+import {
+  hideInteractionMenu,
+  showInteractionMenuForFurniture,
+  showInteractionMenuForPet
+} from "../sim/sim-interaction-menu.js";
 import { getFurnitureRoot } from "./build-mode.js";
 import {
   NEED_KEYS,
@@ -44,6 +48,15 @@ let moveBackward = false;
 let moveLeft = false;
 let moveRight = false;
 let isRunKeyDown = false; // Shift 跑步鍵狀態
+
+// 鏡頭平移狀態（方向鍵控制）
+let camPanUp = false;
+let camPanDown = false;
+let camPanLeft = false;
+let camPanRight = false;
+
+const CAMERA_PAN_SPEED = 6; // 鏡頭平移速度（世界單位/秒）
+const DEFAULT_CAMERA_OFFSET = new THREE.Vector3(8, 8, 8); // 聚焦角色時，相機相對角色的預設偏移
 
 let moveTarget = null; // THREE.Vector3 | null
 let hasMoveTarget = false;
@@ -80,6 +93,11 @@ const FREE_WILL_IDLE_RANDOM_INTERVAL = 6; // 額外隨機抖動（秒）
 
 let petIdleTimer = 0;
 let petLongIdleTimer = 0;
+let isRidingPet = false; // 是否正騎乘在寵物身上
+
+const PET_YAW_FIX = Math.PI / 2; // 豹子模型的可視前方相對於邏輯朝向逆時針旋轉 90 度
+
+let petBackHeightWorld = 0.4; // 粗略估計豹子背部高度，用於計算騎乘時小人的 Y
 
 // 豹子專用貼圖：當 GLTFLoader 未能解析 SpecGloss 擴展、導致 material.map 為 null 時，
 // 用這些貼圖補上顏色與法線，不覆蓋已存在的貼圖。
@@ -134,6 +152,55 @@ function setPetEnabled(enabled) {
   petEnabled = !!enabled;
   if (pet) {
     pet.visible = petEnabled;
+  }
+}
+
+function getRiderHeight() {
+  if (!pet || !character) return 0.6;
+
+  // 估算豹子背部世界高度：基於預先計算的包圍盒與一點點額外抬高避免腿完全穿模
+  const backY = petBackHeightWorld;
+
+  // 小人腰部本地高度約 0.7，乘以縮放得到世界高度
+  const charScaleY = character.scale && typeof character.scale.y === "number" ? character.scale.y : 1;
+  const hipOffset = 0.7 * charScaleY;
+
+  const seatExtra = 0.07; // 稍微往下沉一點，更貼近豹子背
+
+  let riderHeight = backY + seatExtra - hipOffset;
+  if (!Number.isFinite(riderHeight)) riderHeight = 0.6;
+  if (riderHeight < 0.05) riderHeight = 0.05;
+  return riderHeight;
+}
+
+function startPetInteraction(actionId) {
+  if (!pet || !character) return;
+
+  if (actionId === "pet_ride") {
+    // 切換騎乘狀態：若已在騎乘，則視為下馬
+    isRidingPet = !isRidingPet;
+
+    if (isRidingPet) {
+      // 讓角色坐到豹子背上方一點的位置
+      const riderHeight = getRiderHeight();
+      character.position.x = pet.position.x;
+      character.position.z = pet.position.z;
+      character.position.y = riderHeight;
+    } else {
+      // 下馬時回到地面
+      character.position.y = 0;
+    }
+
+    return;
+  }
+
+  // 其他互動暫時只給出提示，後續可補充具體姿勢與動畫
+  if (actionId === "pet_headpat") {
+    showMoodToast("摸了摸寵物的頭");
+  } else if (actionId === "pet_feed") {
+    showMoodToast("給寵物投喂了一點東西");
+  } else if (actionId === "pet_hug") {
+    showMoodToast("抱了抱寵物");
   }
 }
 
@@ -331,7 +398,7 @@ function loadPetModel() {
       });
 
       // 粗略縮放到與小人接近的尺寸，之後可視覺調整
-      leopard.scale.set(0.7, 0.7, 0.7);
+      leopard.scale.set(0.9, 0.9, 0.9);
 
       ensureCharacter();
       if (character) {
@@ -347,6 +414,13 @@ function loadPetModel() {
       scene.add(leopard);
       pet = leopard;
       console.log("[pet] leopard model added to scene");
+
+      // 根據實際縮放後的模型包圍盒估算背部高度（略低於整體高度）
+      const bbox = new THREE.Box3().setFromObject(leopard);
+      const size = new THREE.Vector3();
+      bbox.getSize(size);
+      // 取從腳到背部大約 60% 高度的位置作為背的高度估計
+      petBackHeightWorld = bbox.min.y + size.y * 0.6;
 
       initPetAnimations(gltf);
     },
@@ -370,6 +444,32 @@ function updatePetFollow(delta, movedThisFrame) {
     moveBackward ||
     moveLeft ||
     moveRight;
+
+  // 騎乘時由角色驅動位置，寵物貼在角色下方並播放「跑」或「待機」動作
+  if (isRidingPet) {
+    const riderHeight = getRiderHeight();
+
+    // 寵物跟隨角色的平面位置
+    pet.position.x = character.position.x;
+    pet.position.z = character.position.z;
+    pet.position.y = 0;
+
+    // 角色保持在背上
+    character.position.y = riderHeight;
+
+    // 寵物朝向角色當前朝向
+    const dirX = Math.sin(character.rotation.y);
+    const dirZ = Math.cos(character.rotation.y);
+    pet.lookAt(
+      pet.position.x + dirX,
+      pet.position.y,
+      pet.position.z + dirZ
+    );
+    pet.rotation.y += PET_YAW_FIX;
+
+    updatePetAnimationByState(isMoving, false);
+    return;
+  }
 
   updatePetAnimationByState(isMoving, isSleeping);
 
@@ -436,6 +536,7 @@ function updatePetFollow(delta, movedThisFrame) {
   }
 
   pet.lookAt(lookX, pet.position.y, lookZ);
+  pet.rotation.y += PET_YAW_FIX;
 }
 
 function updateCharacterRotationTowards(dirX, dirZ, delta) {
@@ -462,6 +563,30 @@ function ensureCharacter() {
   scene.add(group);
   character = group;
   return character;
+}
+
+function focusCameraOnCharacter() {
+  ensureCharacter();
+  if (!character) return;
+
+  const target = new THREE.Vector3(
+    character.position.x,
+    character.position.y + 1.5,
+    character.position.z
+  );
+
+  camera.position.set(
+    target.x + DEFAULT_CAMERA_OFFSET.x,
+    target.y + DEFAULT_CAMERA_OFFSET.y,
+    target.z + DEFAULT_CAMERA_OFFSET.z
+  );
+
+  if (controls && controls.target) {
+    controls.target.copy(target);
+    controls.update();
+  } else {
+    camera.lookAt(target);
+  }
 }
 
 function resetLiveState() {
@@ -521,6 +646,9 @@ function handleLiveKeyDown(e) {
   if (e.key === "Shift") {
     isRunKeyDown = true;
   }
+  if (e.key === "f" || e.key === "F") {
+    focusCameraOnCharacter();
+  }
 }
 
 function handleLiveKeyUp(e) {
@@ -536,7 +664,7 @@ function handleLiveKeyUp(e) {
   if (e.key === "d" || e.key === "D" || e.key === "ArrowRight") {
     moveRight = false;
   }
-   if (e.key === "Shift") {
+  if (e.key === "Shift") {
     isRunKeyDown = false;
   }
 }
@@ -559,6 +687,100 @@ function isSleepingWithLightOn() {
 
 function updateNeedsAndMood(delta) {
   tickNeeds(delta, interactionState, isSleepingWithLightOn());
+}
+
+function updateLiveCamera(delta) {
+  if (!camPanUp && !camPanDown && !camPanLeft && !camPanRight) return;
+
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  forward.y = 0;
+  const forwardLen = Math.hypot(forward.x, forward.z) || 1;
+  forward.x /= forwardLen;
+  forward.z /= forwardLen;
+
+  const right = new THREE.Vector3(forward.z, 0, -forward.x);
+
+  let panX = 0;
+  let panZ = 0;
+
+  if (camPanUp) {
+    panX += forward.x;
+    panZ += forward.z;
+  }
+  if (camPanDown) {
+    panX -= forward.x;
+    panZ -= forward.z;
+  }
+  if (camPanRight) {
+    panX += right.x;
+    panZ += right.z;
+  }
+  if (camPanLeft) {
+    panX -= right.x;
+    panZ -= right.z;
+  }
+
+  const len = Math.hypot(panX, panZ);
+  if (len === 0) return;
+  panX /= len;
+  panZ /= len;
+
+  const step = CAMERA_PAN_SPEED * delta;
+  panX *= step;
+  panZ *= step;
+
+  camera.position.x += panX;
+  camera.position.z += panZ;
+
+  if (controls && controls.target) {
+    controls.target.x += panX;
+    controls.target.z += panZ;
+  }
+}
+
+// 供按鈕單次調用的鏡頭平移：direction = "up" | "down" | "left" | "right"，distance 為世界單位距離
+function panCameraOnce(direction, distance) {
+  const dist = typeof distance === "number" && Number.isFinite(distance) ? distance : 2;
+
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  forward.y = 0;
+  const forwardLen = Math.hypot(forward.x, forward.z) || 1;
+  forward.x /= forwardLen;
+  forward.z /= forwardLen;
+
+  const right = new THREE.Vector3(forward.z, 0, -forward.x);
+
+  let panX = 0;
+  let panZ = 0;
+
+  if (direction === "up") {
+    panX += forward.x;
+    panZ += forward.z;
+  } else if (direction === "down") {
+    panX -= forward.x;
+    panZ -= forward.z;
+  } else if (direction === "right") {
+    panX += right.x;
+    panZ += right.z;
+  } else if (direction === "left") {
+    panX -= right.x;
+    panZ -= right.z;
+  }
+
+  const len = Math.hypot(panX, panZ);
+  if (len === 0) return;
+  panX = (panX / len) * dist;
+  panZ = (panZ / len) * dist;
+
+  camera.position.x += panX;
+  camera.position.z += panZ;
+
+  if (controls && controls.target) {
+    controls.target.x += panX;
+    controls.target.z += panZ;
+  }
 }
 
 // 床頭位置與躺下頭部目標點的計算、以及床頭朝向 yaw，現由 sim-character.js 提供：
@@ -998,35 +1220,124 @@ function handleLiveMouseDown(e) {
   updateMouseFromEvent(e);
   raycaster.setFromCamera(mouse, camera);
 
-  // 先檢測是否點到了小人本身，用於打開/關閉性格設定面板
   ensureCharacter();
-  if (character) {
-    const simHits = raycaster.intersectObject(character, true);
-    if (simHits.length) {
-      if (typeof window !== "undefined" && typeof window.togglePersonalityPanelFromSimClick === "function") {
+
+  // 單次射線檢測：角色 + 寵物 + 家具
+  const targets = [];
+  if (pet) targets.push(pet);
+  if (character) targets.push(character);
+  if (furnitures && furnitures.length) {
+    for (let i = 0; i < furnitures.length; i++) {
+      if (furnitures[i]) targets.push(furnitures[i]);
+    }
+  }
+
+  const hits = targets.length ? raycaster.intersectObjects(targets, true) : [];
+
+  // 調試輸出：觀察點擊時實際命中了哪些物件
+  if (typeof console !== "undefined" && console.log) {
+    console.log("[live-click] targets=", targets.length, "hits=", hits.length,
+      hits.map(h => (h.object && h.object.name) || "<noname>"));
+  }
+
+  function isDescendantOf(root, obj) {
+    if (!root || !obj) return false;
+    let cur = obj;
+    while (cur) {
+      if (cur === root) return true;
+      cur = cur.parent;
+    }
+    return false;
+  }
+
+  if (hits.length) {
+    // 先在所有命中結果中尋找寵物 / 小人，避免被其它物件遮擋
+    let petHit = null;
+    let simHit = null;
+
+    for (let i = 0; i < hits.length; i++) {
+      const obj = hits[i].object;
+      if (!petHit && pet && isDescendantOf(pet, obj)) {
+        petHit = hits[i];
+      }
+      if (!simHit && character && isDescendantOf(character, obj)) {
+        simHit = hits[i];
+      }
+    }
+
+    // 1) 若有命中寵物：打開寵物互動菜單
+    if (petHit && pet) {
+      if (console && console.log) {
+        console.log("[live-click] hit pet -> show pet menu");
+      }
+      showInteractionMenuForPet(pet, e.clientX, e.clientY, (_pet, actionId) => {
+        startPetInteraction(actionId);
+      });
+      return;
+    }
+
+    // 2) 若有命中小人：騎乘時視為對寵物互動，否則打開性格面板
+    if (simHit && character) {
+      if (console && console.log) {
+        console.log("[live-click] hit character; isRidingPet=", isRidingPet);
+      }
+      if (isRidingPet && pet) {
+        showInteractionMenuForPet(pet, e.clientX, e.clientY, (_pet, actionId) => {
+          startPetInteraction(actionId);
+        });
+      } else if (
+        typeof window !== "undefined" &&
+        typeof window.togglePersonalityPanelFromSimClick === "function"
+      ) {
         window.togglePersonalityPanelFromSimClick();
       }
       return;
     }
-  }
 
-  // 優先檢測家具點擊
-  const furnitureHits = raycaster.intersectObjects(furnitures, true);
-  if (furnitureHits.length) {
-    const root = getFurnitureRoot(furnitureHits[0].object) || furnitureHits[0].object;
-    showInteractionMenuForFurniture(root, e.clientX, e.clientY, (f, actionId) => {
-      startFurnitureInteraction(f, actionId);
-    });
-    return;
+    // 3) 其餘命中若為有交互類型的家具，則打開家具菜單
+    const first = hits[0].object;
+    const root = getFurnitureRoot(first) || first;
+    if (root && root.userData && root.userData.type) {
+      if (console && console.log) {
+        console.log("[live-click] hit furniture type=", root.userData.type);
+      }
+      showInteractionMenuForFurniture(root, e.clientX, e.clientY, (f, actionId) => {
+        startFurnitureInteraction(f, actionId);
+      });
+      return;
+    }
+    // 否則視為無效命中，後續落回到地面點擊處理
   }
 
   // 其餘情況仍然是點擊地面移動
   const hit = raycaster.intersectObject(ground);
+  if (console && console.log) {
+    console.log("[live-click] ground hit count=", hit.length);
+  }
   if (!hit.length) return;
 
   ensureCharacter();
-  const targetCellX = snap(hit[0].point.x);
-  const targetCellZ = snap(hit[0].point.z);
+  const groundPoint = hit[0].point;
+
+  // 若沒有直接命中寵物 mesh，但點擊位置在寵物附近，視為寵物點擊
+  if (pet) {
+    const dxPet = groundPoint.x - pet.position.x;
+    const dzPet = groundPoint.z - pet.position.z;
+    const distPet = Math.hypot(dxPet, dzPet);
+    const PET_CLICK_RADIUS = 1.4; // 可點擊半徑（世界單位），放大一些方便點擊身體
+    if (distPet <= PET_CLICK_RADIUS) {
+      if (console && console.log) {
+        console.log("[live-click] ground near pet (", distPet, ") -> treat as pet click");
+      }
+      showInteractionMenuForPet(pet, e.clientX, e.clientY, (_pet, actionId) => {
+        startPetInteraction(actionId);
+      });
+      return;
+    }
+  }
+
+  const targetCellX = snap(groundPoint.x);
+  const targetCellZ = snap(groundPoint.z);
 
   if (!character) return;
   const startCellX = Math.floor(character.position.x);
@@ -1038,6 +1349,12 @@ function handleLiveMouseDown(e) {
     interactionTimer = 0;
     sleepTarget = null;
     resetCharacterPose();
+  }
+
+   // 點擊地面時若正在騎乘，順便下馬
+  if (isRidingPet) {
+    isRidingPet = false;
+    character.position.y = 0;
   }
 
   const path = findPath(startCellX, startCellZ, targetCellX, targetCellZ);
@@ -1081,11 +1398,19 @@ function updateLive(delta) {
   maybeDoFreeWillAction(delta);
 
   const moodFactor = getMoodSpeedMultiplier();
-  // 基礎移動速度：WASD 默認為慢走，按住 Shift 進入跑步
-  const WALK_SPEED = 1.4; // 可以調小/調大來改變走路速度
-  const RUN_SPEED = 3.5; // 可以調整為更快的衝刺速度
-  const isRunningNow = isRunKeyDown;
-  const speed = (isRunningNow ? RUN_SPEED : WALK_SPEED) * moodFactor;
+  // 基礎移動速度：WASD 默認為慢走，按住 Shift 進入跑步；騎乘時有獨立的更快速度
+  const WALK_SPEED = 1.4;
+  const RUN_SPEED = 3.5;
+  const RIDE_WALK_SPEED = 3.0;
+  const RIDE_RUN_SPEED = 6.0;
+  const isRunningNow = isRunKeyDown || isRidingPet;
+  let baseSpeed;
+  if (isRidingPet) {
+    baseSpeed = isRunKeyDown ? RIDE_RUN_SPEED : RIDE_WALK_SPEED;
+  } else {
+    baseSpeed = isRunKeyDown ? RUN_SPEED : WALK_SPEED;
+  }
+  const speed = baseSpeed * moodFactor;
   let dirX = 0;
   let dirZ = 0;
   if (moveForward) dirZ -= 1;
@@ -1222,8 +1547,11 @@ function updateLive(delta) {
     petMixer.update(delta);
   }
 
+  // 根據方向鍵輸入平移鏡頭
+  updateLiveCamera(delta);
+
   const moveSpeed = speed;
-  const isRunning = isRunKeyDown;
+  const isRunning = isRunningNow;
 
   const animResult = updateCharacterAnimation(
     character,
@@ -1239,7 +1567,8 @@ function updateLive(delta) {
     enterSleepPose,
     resetCharacterPose,
     updateNeedsAndMood,
-    isRunning
+    isRunning,
+    isRidingPet
   );
 
   interactionState = animResult.interactionState;
@@ -1255,5 +1584,7 @@ export {
   handleLiveKeyUp,
   handleLiveMouseDown,
   updateLive,
-  setPetEnabled
+  setPetEnabled,
+  focusCameraOnCharacter,
+  panCameraOnce
 };

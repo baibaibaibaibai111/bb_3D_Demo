@@ -105,7 +105,7 @@ function startFurnitureInteractionCore(furniture, actionId, character, state, sh
 
     if (finalRefuseChance >= 1) {
       if (typeof showMoodToast === "function") {
-        showMoodToast("我現在完全不想做這件事……");
+        showMoodToast("我现在完全不想做这件事……");
       }
       state.pendingInteraction = null;
       state.hasMoveTarget = false;
@@ -119,9 +119,9 @@ function startFurnitureInteractionCore(furniture, actionId, character, state, sh
       if (typeof showMoodToast === "function") {
         const pref = getInteractionPreferenceScore(actionId);
         if (pref < 0) {
-          showMoodToast("這種事我真的不太喜歡……");
+          showMoodToast("这种事我真的不太喜欢……");
         } else if (pref > 0) {
-          showMoodToast("本來還想做點別的……");
+          showMoodToast("本來还想做点別的……");
         } else {
           showMoodToast("我不太想做……");
         }

@@ -20,7 +20,9 @@ import {
   ensureCharacter,
   resetLiveState,
   handleLiveKeyDown,
-  setPetEnabled
+  setPetEnabled,
+  focusCameraOnCharacter,
+  panCameraOnce
 } from "../modes/live-mode.js";
 
 /* ================= 模式與 UI 狀態 ================= */
@@ -76,6 +78,13 @@ const personalityPrefValueLabels = Array.from(
   document.querySelectorAll(".personality-pref-value")
 );
 const furniturePanelElement = document.getElementById("furniturePanel");
+
+// 鏡頭控制按鈕
+const camFocusBtn = document.getElementById("camFocusBtn");
+const camUpBtn = document.getElementById("camUpBtn");
+const camDownBtn = document.getElementById("camDownBtn");
+const camLeftBtn = document.getElementById("camLeftBtn");
+const camRightBtn = document.getElementById("camRightBtn");
 
 const PERSONALITY_ACTION_KEYS = [
   "tv_watch",
@@ -224,6 +233,44 @@ function initButtons() {
           simNeeds.set(name, value);
         }
       });
+    });
+  }
+
+  // 鏡頭控制：僅在生活模式下響應按鈕
+  const CAM_BUTTON_STEP = 2; // 每次點擊鏡頭平移距離（世界單位）
+  if (camFocusBtn && typeof focusCameraOnCharacter === "function") {
+    camFocusBtn.addEventListener("click", () => {
+      if (gameMode === "live") {
+        focusCameraOnCharacter();
+      }
+    });
+  }
+  if (camUpBtn && typeof panCameraOnce === "function") {
+    camUpBtn.addEventListener("click", () => {
+      if (gameMode === "live") {
+        panCameraOnce("up", CAM_BUTTON_STEP);
+      }
+    });
+  }
+  if (camDownBtn && typeof panCameraOnce === "function") {
+    camDownBtn.addEventListener("click", () => {
+      if (gameMode === "live") {
+        panCameraOnce("down", CAM_BUTTON_STEP);
+      }
+    });
+  }
+  if (camLeftBtn && typeof panCameraOnce === "function") {
+    camLeftBtn.addEventListener("click", () => {
+      if (gameMode === "live") {
+        panCameraOnce("left", CAM_BUTTON_STEP);
+      }
+    });
+  }
+  if (camRightBtn && typeof panCameraOnce === "function") {
+    camRightBtn.addEventListener("click", () => {
+      if (gameMode === "live") {
+        panCameraOnce("right", CAM_BUTTON_STEP);
+      }
     });
   }
 
