@@ -43,6 +43,7 @@ let moveForward = false;
 let moveBackward = false;
 let moveLeft = false;
 let moveRight = false;
+let isRunKeyDown = false; // Shift 跑步鍵狀態
 
 let moveTarget = null; // THREE.Vector3 | null
 let hasMoveTarget = false;
@@ -517,6 +518,9 @@ function handleLiveKeyDown(e) {
     }
     moveRight = true;
   }
+  if (e.key === "Shift") {
+    isRunKeyDown = true;
+  }
 }
 
 function handleLiveKeyUp(e) {
@@ -531,6 +535,9 @@ function handleLiveKeyUp(e) {
   }
   if (e.key === "d" || e.key === "D" || e.key === "ArrowRight") {
     moveRight = false;
+  }
+   if (e.key === "Shift") {
+    isRunKeyDown = false;
   }
 }
 
@@ -1074,7 +1081,11 @@ function updateLive(delta) {
   maybeDoFreeWillAction(delta);
 
   const moodFactor = getMoodSpeedMultiplier();
-  const speed = 3 * moodFactor;
+  // 基礎移動速度：WASD 默認為慢走，按住 Shift 進入跑步
+  const WALK_SPEED = 1.4; // 可以調小/調大來改變走路速度
+  const RUN_SPEED = 3.5; // 可以調整為更快的衝刺速度
+  const isRunningNow = isRunKeyDown;
+  const speed = (isRunningNow ? RUN_SPEED : WALK_SPEED) * moodFactor;
   let dirX = 0;
   let dirZ = 0;
   if (moveForward) dirZ -= 1;
@@ -1211,8 +1222,8 @@ function updateLive(delta) {
     petMixer.update(delta);
   }
 
-  const moveSpeed = 3 * moodFactor;
-  const isRunning = moveSpeed > 3.2; // 之後若有衝刺/跑步模式，可在此調整條件
+  const moveSpeed = speed;
+  const isRunning = isRunKeyDown;
 
   const animResult = updateCharacterAnimation(
     character,

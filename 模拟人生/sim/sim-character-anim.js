@@ -11,6 +11,8 @@ function resetWomanRigPose(rig) {
     "head",
     "leftUpperArm",
     "rightUpperArm",
+    "leftLowerArm",
+    "rightLowerArm",
     "leftUpperLeg",
     "rightUpperLeg",
     "leftLowerLeg",
@@ -30,8 +32,14 @@ function applyWomanWalkPose(rig, walkPhase, moodFactor, isRunning) {
   resetWomanRigPose(rig);
   const amp = (isRunning ? 0.9 : 0.5) * moodFactor;
   const phase = walkPhase;
-  const armSwing = Math.sin(phase) * amp;
-  const legSwing = Math.sin(phase) * amp;
+
+  // 走路 vs 跑步：跑步時手腿擺動與膝蓋彎曲更大
+  const armSwingAmp = amp * (isRunning ? 0.9 : 0.5);
+  const legSwingAmp = amp * (isRunning ? 0.9 : 0.5);
+
+  // 手臂左右相反、與腿相位相反的前後擺動
+  const armSwing = Math.sin(phase) * armSwingAmp;
+  const legSwing = Math.sin(phase + Math.PI) * legSwingAmp; // 腿的相位和手臂相反
 
   if (rig.leftUpperArm) rig.leftUpperArm.rotation.z += armSwing;
   if (rig.rightUpperArm) rig.rightUpperArm.rotation.z -= armSwing;
@@ -39,11 +47,41 @@ function applyWomanWalkPose(rig, walkPhase, moodFactor, isRunning) {
   if (rig.leftUpperLeg) rig.leftUpperLeg.rotation.z += legSwing;
   if (rig.rightUpperLeg) rig.rightUpperLeg.rotation.z -= legSwing;
 
-  const rawKnee = Math.sin(phase);
-  const kneeAmp = isRunning ? 1.2 : 0.8;
-  const kneeBend = Math.max(0, rawKnee) * kneeAmp; // 只向一側彎曲，避免反向超伸
-  if (rig.leftLowerLeg) rig.leftLowerLeg.rotation.z += kneeBend;
-  if (rig.rightLowerLeg) rig.rightLowerLeg.rotation.z += kneeBend;
+  // 輕微的骨盆 / 脊柱扭動，讓上半身不那麼僵硬
+  const torsoTwist = Math.cos(phase * 2) * 0.05 * amp;
+  if (rig.hips) rig.hips.rotation.y += torsoTwist;
+  if (rig.spine) rig.spine.rotation.y -= torsoTwist;
+
+  // 讓上半身在行走 / 跑步時略微前傾：跑步前傾更多一些
+  const forwardLean = isRunning ? 0.16 : 0.12;
+  if (rig.spine) rig.spine.rotation.z += forwardLean;
+  if (rig.hips) rig.hips.rotation.z += forwardLean * 0.3;
+
+  // 跑步時手肘明顯彎曲，走路時只略微彎曲
+  const elbowBend = isRunning ? 1.0 : 0.15;
+  if (rig.leftLowerArm) rig.leftLowerArm.rotation.z += elbowBend;
+  if (rig.rightLowerArm) rig.rightLowerArm.rotation.z -= elbowBend;
+
+  // 膝蓋交替彎曲：左右腿在不同相位彎曲
+  // 步伐縮小後，膝蓋彎曲幅度也略微收斂
+  const kneeAmp = isRunning ? 0.8 : 0.5;
+  const leftKneeBend = Math.max(0, Math.sin(phase + Math.PI / 2)) * kneeAmp;
+  const rightKneeBend = Math.max(0, Math.sin(phase - Math.PI / 2)) * kneeAmp;
+  if (rig.leftLowerLeg) rig.leftLowerLeg.rotation.z -= leftKneeBend;
+  if (rig.rightLowerLeg) rig.rightLowerLeg.rotation.z -= rightKneeBend;
+
+  // 較溫和的左右平衡：只用輕微旋轉，不改 position.x，避免正面視角明顯左右搖晃
+  const sway = Math.sin(walkPhase * 2) * 0.02 * amp;
+  if (rig.hips) {
+    rig.hips.rotation.y += sway * 0.3;
+  }
+  if (rig.spine) {
+    rig.spine.rotation.y -= sway * 0.3;
+  }
+
+  // 肩部反向擺動：幅度壓得更小，只作細微平衡
+  const shoulderSway = Math.sin(walkPhase * 2 + Math.PI) * 0.01 * amp;
+  if (rig.spine) rig.spine.rotation.y -= shoulderSway;
 }
 
 function applyWomanIdlePose(rig, t) {
@@ -265,7 +303,8 @@ function updateCharacterAnimation(
   }
 
   if (movedThisFrame) {
-    const baseFreq = isRunning ? 16 : 8;
+    // 調整走路 / 跑步動畫頻率：跑步稍快於走路，但不至於雙腿成「殘影」
+    const baseFreq = isRunning ? 11 : 7;
     walkPhase += delta * baseFreq * moodFactor;
   } else {
     walkPhase = Math.max(0, walkPhase - delta * 10);
@@ -280,16 +319,17 @@ function updateCharacterAnimation(
   }
 
   const swing = Math.sin(walkPhase) * 0.4 * moodFactor;
-  const counterSwing = Math.cos(walkPhase) * 0.4 * moodFactor;
+  const legSwing = -swing * 0.6;
 
-  if (leftArm && rightArm) {
+  // 舊方塊小人的走路備援動畫（僅在沒有 womanRig 時使用）
+  if (!womanRig && leftArm && rightArm) {
     leftArm.rotation.x = swing;
     rightArm.rotation.x = -swing;
   }
 
-  if (leftLeg && rightLeg) {
-    leftLeg.rotation.x = -counterSwing * 0.6;
-    rightLeg.rotation.x = counterSwing * 0.6;
+  if (!womanRig && leftLeg && rightLeg) {
+    leftLeg.rotation.x = legSwing;
+    rightLeg.rotation.x = -legSwing;
   }
 
   if (womanRig) {

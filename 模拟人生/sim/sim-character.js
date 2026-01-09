@@ -89,6 +89,28 @@ function buildWomanRigFromSkeleton(skeleton) {
       "r_calf",
       "calf_r",
       "shin_r"
+    ]),
+    leftLowerArm: findBone([
+      "bip001lforearm",
+      "leftforearm",
+      "leftlowerarm",
+      "forearm_l",
+      "lowerarm_l",
+      "l_forearm",
+      "l_hand",
+      "lefthand",
+      "hand_l"
+    ]),
+    rightLowerArm: findBone([
+      "bip001rforearm",
+      "rightforearm",
+      "rightlowerarm",
+      "forearm_r",
+      "lowerarm_r",
+      "r_forearm",
+      "r_hand",
+      "righthand",
+      "hand_r"
     ])
   };
 
@@ -108,7 +130,9 @@ function buildWomanRigFromSkeleton(skeleton) {
     "leftUpperLeg",
     "rightUpperLeg",
     "leftLowerLeg",
-    "rightLowerLeg"
+    "rightLowerLeg",
+    "leftLowerArm",
+    "rightLowerArm"
   ].forEach(addBase);
 
   return rig;
