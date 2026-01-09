@@ -154,11 +154,20 @@ function applyWomanRidePose(rig, ridePhase, moodFactor) {
     rig.head.rotation.x += headSideFromForward;
   }
 
-  const armForward = 0.8;
-  if (rig.leftUpperArm) rig.leftUpperArm.rotation.z -= armForward;
-  if (rig.rightUpperArm) rig.rightUpperArm.rotation.z -= armForward;
+  // 手臂：自然垂在小腹前，略微向身體內側收攏
+  const armForward = 0.15; // 上臂向前的角度，數值越大手更靠前
+  const armInward = 0.45;  // 上臂向身體內側收的角度，數值越大越靠近小腹
+  const elbowBend = 0.5;   // 手肘彎曲角度
 
-  const elbowBend = 1.0;
+  if (rig.leftUpperArm) {
+    rig.leftUpperArm.rotation.z -= armForward;
+    rig.leftUpperArm.rotation.x += armInward;
+  }
+  if (rig.rightUpperArm) {
+    rig.rightUpperArm.rotation.z -= armForward;
+    rig.rightUpperArm.rotation.x -= armInward;
+  }
+
   if (rig.leftLowerArm) rig.leftLowerArm.rotation.z -= elbowBend;
   if (rig.rightLowerArm) rig.rightLowerArm.rotation.z -= elbowBend;
 
