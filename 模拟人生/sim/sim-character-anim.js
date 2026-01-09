@@ -196,6 +196,45 @@ function applyWomanRidePose(rig, ridePhase, moodFactor) {
   }
 }
 
+function applyWomanPetInteractionPose(rig, interactionState, t) {
+  if (!rig) return;
+  resetWomanRigPose(rig);
+  const time = t || 0;
+  const idle = Math.sin(time * 2) * 0.03;
+  if (rig.spine) rig.spine.rotation.z += idle * 0.3;
+  if (interactionState === "pet_headpat") {
+    const pat = Math.sin(time * 6) * 0.3; // 輕微上下撫摸
+    if (rig.rightUpperArm) {
+      rig.rightUpperArm.rotation.z -= 0.9;
+      rig.rightUpperArm.rotation.x += 0.2;
+    }
+    if (rig.rightLowerArm) {
+      rig.rightLowerArm.rotation.z -= 1.2 + pat;
+    }
+  } else if (interactionState === "pet_feed") {
+    if (rig.leftUpperArm) rig.leftUpperArm.rotation.z -= 0.7;
+    if (rig.rightUpperArm) rig.rightUpperArm.rotation.z -= 0.7;
+    if (rig.leftLowerArm) rig.leftLowerArm.rotation.z -= 1.0;
+    if (rig.rightLowerArm) rig.rightLowerArm.rotation.z -= 1.0;
+  } else if (interactionState === "pet_hug") {
+    // 身體微微前傾，頭略微低下，雙手向前環抱
+    if (rig.spine) rig.spine.rotation.z += 0.45; // 上身前傾多一點
+    if (rig.hips) rig.hips.rotation.z += 0.3;   // 腰部也多彎一點
+    if (rig.head) rig.head.rotation.z += 0.15;
+
+    if (rig.leftUpperArm) {
+      rig.leftUpperArm.rotation.z -= 0.5;
+      rig.leftUpperArm.rotation.x += 0.4;
+    }
+    if (rig.rightUpperArm) {
+      rig.rightUpperArm.rotation.z -= 0.5;
+      rig.rightUpperArm.rotation.x -= 0.4;
+    }
+    if (rig.leftLowerArm) rig.leftLowerArm.rotation.z -= 0.8;
+    if (rig.rightLowerArm) rig.rightLowerArm.rotation.z -= 0.8;
+  }
+}
+
 function updateCharacterAnimation(
   character,
   delta,
@@ -306,6 +345,30 @@ function updateCharacterAnimation(
     if (leftLeg) leftLeg.rotation.x = 0;
     if (rightLeg) rightLeg.rotation.x = 0;
     if (womanRig) applyWomanSleepPose(womanRig, breathe);
+    updateNeedsAndMood(delta);
+    return { interactionState, interactionTimer, sleepTarget, walkPhase };
+  }
+
+  if (
+    interactionState === "pet_headpat" ||
+    interactionState === "pet_feed" ||
+    interactionState === "pet_hug"
+  ) {
+    interactionTimer += delta;
+    const idle = Math.sin(interactionTimer * 2) * 0.02;
+    const baseBodyY = character.userData && character.userData.baseBodyY;
+    const baseHeadY = character.userData && character.userData.baseHeadY;
+    if (body && typeof baseBodyY === "number") {
+      body.position.y = baseBodyY + idle;
+    }
+    if (head && typeof baseHeadY === "number") {
+      head.position.y = baseHeadY + idle * 0.5;
+    }
+    if (leftArm) leftArm.rotation.x = 0;
+    if (rightArm) rightArm.rotation.x = 0;
+    if (leftLeg) leftLeg.rotation.x = 0;
+    if (rightLeg) rightLeg.rotation.x = 0;
+    if (womanRig) applyWomanPetInteractionPose(womanRig, interactionState, interactionTimer);
     updateNeedsAndMood(delta);
     return { interactionState, interactionTimer, sleepTarget, walkPhase };
   }

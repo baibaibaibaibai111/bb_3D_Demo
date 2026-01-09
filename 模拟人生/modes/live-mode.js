@@ -174,6 +174,7 @@ function getRiderHeight() {
 }
 
 function startPetInteraction(actionId) {
+  ensureCharacter();
   if (!pet || !character) return;
 
   if (actionId === "pet_ride") {
@@ -194,13 +195,43 @@ function startPetInteraction(actionId) {
     return;
   }
 
-  // 其他互動暫時只給出提示，後續可補充具體姿勢與動畫
-  if (actionId === "pet_headpat") {
-    showMoodToast("摸了摸寵物的頭");
-  } else if (actionId === "pet_feed") {
-    showMoodToast("給寵物投喂了一點東西");
-  } else if (actionId === "pet_hug") {
-    showMoodToast("抱了抱寵物");
+  // 其餘互動：小人站到寵物旁邊做對應動作
+  if (isRidingPet) {
+    isRidingPet = false;
+    character.position.y = 0;
+  }
+
+  if (actionId === "pet_headpat" || actionId === "pet_feed" || actionId === "pet_hug") {
+    hasMoveTarget = false;
+    pathCells = null;
+    pathIndex = 0;
+    if (moveMarker) moveMarker.visible = false;
+
+    // 僅原地轉向面對寵物，不再瞬移位置，避免「閃退」感覺
+    const dx = pet.position.x - character.position.x;
+    const dz = pet.position.z - character.position.z;
+    if (Math.abs(dx) > 0.001 || Math.abs(dz) > 0.001) {
+      character.rotation.y = Math.atan2(dx, dz);
+    }
+
+    if (actionId === "pet_hug") {
+      playPetAction("sit");
+    } else {
+      playPetAction("idle");
+    }
+
+    interactionState = actionId;
+    interactionTimer = 0;
+
+    if (actionId === "pet_headpat") {
+      showMoodToast("摸了摸寵物的頭");
+    } else if (actionId === "pet_feed") {
+      showMoodToast("給寵物投喂了一點東西");
+    } else if (actionId === "pet_hug") {
+      showMoodToast("抱了抱寵物");
+    }
+
+    return;
   }
 }
 
@@ -437,6 +468,10 @@ function updatePetFollow(delta, movedThisFrame) {
 
   const isSleeping =
     interactionState === "sleep" || interactionState === "sleep_enter";
+  const isPetInteracting =
+    interactionState === "pet_headpat" ||
+    interactionState === "pet_feed" ||
+    interactionState === "pet_hug";
   const isMoving =
     movedThisFrame ||
     hasMoveTarget ||
@@ -471,7 +506,16 @@ function updatePetFollow(delta, movedThisFrame) {
     return;
   }
 
-  updatePetAnimationByState(isMoving, isSleeping);
+  if (isPetInteracting) {
+    // 寵物互動時固定使用對應動畫：擁抱時坐下，其餘保持待機
+    if (interactionState === "pet_hug") {
+      playPetAction("sit");
+    } else {
+      playPetAction("idle");
+    }
+  } else {
+    updatePetAnimationByState(isMoving, isSleeping);
+  }
 
   let targetX = character.position.x - 0.8;
   let targetZ = character.position.z - 0.6;
@@ -494,6 +538,14 @@ function updatePetFollow(delta, movedThisFrame) {
     const worldOffsetZ = localX * sin + localZ * cos;
     targetX = furn.position.x + worldOffsetX;
     targetZ = furn.position.z + worldOffsetZ;
+    speed = 2;
+  } else if (isPetInteracting && interactionState === "pet_hug") {
+    // 擁抱時：讓豹子走到人物正前方、貼近再趴下
+    const hugDist = 0.45; // 豹子與人物的前後距離
+    const dirX = Math.sin(character.rotation.y);
+    const dirZ = Math.cos(character.rotation.y);
+    targetX = character.position.x + dirX * hugDist;
+    targetZ = character.position.z + dirZ * hugDist;
     speed = 2;
   } else if (!isMoving && !interactionState) {
     // 小人站立發呆：短時間內原地小幅晃動，久了之後坐在旁邊
