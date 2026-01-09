@@ -14,11 +14,13 @@ function createFloor(x, z) {
       return;
     }
   }
+  // 把地板改成貼在地面上的薄平面，避免角色 / 寵物腳部被 0.1 高度的方塊包住造成「穿模」感
   const floor = new THREE.Mesh(
-    new THREE.BoxGeometry(1, 0.1, 1),
+    new THREE.PlaneGeometry(1, 1),
     new THREE.MeshStandardMaterial({ color: 0x999999 })
   );
-  floor.position.set(x + 0.5, 0.05, z + 0.5);
+  floor.rotation.x = -Math.PI / 2; // 水平鋪在地面上
+  floor.position.set(x + 0.5, 0.001, z + 0.5);
   floor.receiveShadow = true;
   floor.userData.grid = { x, z };
   scene.add(floor);
